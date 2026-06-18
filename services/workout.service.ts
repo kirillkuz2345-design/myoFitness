@@ -1,5 +1,11 @@
+// services/workout.service.ts
 import { ensureDbReady } from "../db/dexie";
 import type { Workout, WorkoutBlock, SyncQueue } from "../db/types";
+import {
+  parseRoutineTimestamp,
+  stampRoutine,
+} from "@/lib/routines/conflict";
+import type { WorkoutRoutine } from "@/db/types";
 
 type QueuePayload = Record<string, unknown>;
 
@@ -18,12 +24,29 @@ function buildQueueItem(
   };
 }
 
+function workoutToRoutine(workout: Workout, blocks: WorkoutBlock[]): WorkoutRoutine {
+  return {
+    id: workout.id,
+    client_id: workout.client_id,
+    trainer_id: workout.trainer_id,
+    date: workout.date,
+    title: workout.title || workout.name,
+    blocks,
+    recommendations: "",
+    isPendingSync: workout.sync_status === "pending",
+    status: workout.status,
+    is_custom: workout.is_custom,
+    updated_at: workout.updated_at,
+  };
+}
+
 export const workoutService = {
   async saveWorkoutWithBlocks(
     workout: Workout,
     blocks: WorkoutBlock[]
   ): Promise<void> {
     const db = await ensureDbReady();
+    const now = new Date().toISOString();
 
     await db.transaction(
       "rw",
@@ -34,16 +57,25 @@ export const workoutService = {
           ? "UPDATE"
           : "CREATE";
 
-        // Сохраняем заметки (notes) вместе с остальными данными тренировки
-        const workoutRecord: Workout = { 
-          ...workout, 
+        const workoutRecord: Workout = {
+          ...workout,
           notes: workout.notes || null,
-          sync_status: "pending" 
+          sync_status: "pending",
+          updated_at: now,
         };
         await db.workouts.put(workoutRecord);
 
+        const queuePayload = {
+          ...workoutRecord,
+          title: workoutRecord.title || workoutRecord.name,
+        };
+
         await db.sync_queue.add(
-          buildQueueItem("workouts", workoutOp, workoutRecord as unknown as QueuePayload)
+          buildQueueItem(
+            "workouts",
+            workoutOp,
+            queuePayload as unknown as QueuePayload
+          )
         );
 
         const existingBlocks = await db.workout_blocks
@@ -92,7 +124,30 @@ export const workoutService = {
     );
   },
 
-  async getWorkoutWithBlocks(clientId: string, date: string) {
+  shouldSyncWorkout(
+    local: WorkoutRoutine,
+    remoteUpdatedAt?: string | null
+  ): boolean {
+    if (!remoteUpdatedAt) return true;
+    const localTs = parseRoutineTimestamp(local.updated_at);
+    const remoteTs = parseRoutineTimestamp(remoteUpdatedAt);
+    return localTs >= remoteTs;
+  },
+
+  stampWorkout(workout: Workout): Workout {
+    const routine = stampRoutine(
+      workoutToRoutine(workout, [])
+    );
+    return {
+      ...workout,
+      updated_at: routine.updated_at,
+    };
+  },
+
+  async getWorkoutWithBlocks(
+    clientId: string,
+    date: string
+  ): Promise<{ workout: Workout; blocks: WorkoutBlock[] } | null> {
     const db = await ensureDbReady();
 
     const workout = await db.workouts

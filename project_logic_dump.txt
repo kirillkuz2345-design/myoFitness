@@ -1,0 +1,893 @@
+import { ensureDbReady } from "../db/dexie";
+import type { FitnessPWA } from "../db/dexie";
+import type {
+  LocalProfile,
+  SyncQueue,
+  TrainerClientNote,
+  UserRole,
+} from "../db/types";
+import { trainerClientNoteId } from "../db/types";
+import { getSupabaseClient } from "../lib/supabase/client";
+
+const PROFILE_REMOTE_SELECT =
+  "id, full_name, avatar_url, role, trainer_id, gender, height_cm, weight_kg";
+
+const PROFILE_REMOTE_SELECT_BASE =
+  "id, full_name, avatar_url, role, trainer_id";
+
+type QueuePayload = Record<string, unknown>;
+
+function buildQueueItem(
+  table_name: SyncQueue["table_name"],
+  operation: SyncQueue["operation"],
+  payload: QueuePayload
+): Omit<SyncQueue, "id"> {
+  return {
+    table_name,
+    operation,
+    payload,
+    timestamp: Date.now(),
+    status: "pending",
+    retries: 0,
+  };
+}
+
+function isOnline(): boolean {
+  return typeof navigator !== "undefined" && navigator.onLine;
+}
+
+async function withDb<T>(label: string, fn: (db: FitnessPWA) => Promise<T>): Promise<T> {
+  try {
+    const db = await ensureDbReady();
+    return await fn(db);
+  } catch (err) {
+    console.error(`[profileService] ${label} failed:`, err);
+    throw err;
+  }
+}
+
+export const profileService = {
+  async getLocalProfile(userId: string): Promise<LocalProfile | undefined> {
+    return withDb("getLocalProfile", (db) => db.profiles.get(userId));
+  },
+
+  async cacheProfileLocally(
+    profile: Omit<LocalProfile, "sync_status" | "updated_at"> & {
+      sync_status?: LocalProfile["sync_status"];
+      updated_at?: number;
+    }
+  ): Promise<LocalProfile> {
+    const record: LocalProfile = {
+      ...profile,
+      sync_status: profile.sync_status ?? "synced",
+      updated_at: profile.updated_at ?? Date.now(),
+    };
+    await withDb("cacheProfileLocally", (db) => db.profiles.put(record));
+    return record;
+  },
+
+  async saveProfile(profile: LocalProfile): Promise<void> {
+    const record: LocalProfile = {
+      ...profile,
+      sync_status: "pending",
+      updated_at: Date.now(),
+    };
+
+    await withDb("saveProfile", async (db) => {
+      await db.transaction("rw", [db.profiles, db.sync_queue], async () => {
+        const existing = await db.profiles.get(profile.id);
+        const operation: SyncQueue["operation"] = existing ? "UPDATE" : "CREATE";
+
+        await db.profiles.put(record);
+        await db.sync_queue.add(
+          buildQueueItem("profiles", operation, record as unknown as QueuePayload)
+        );
+      });
+    });
+  },
+
+  async getTrainerClients(trainerId: string): Promise<LocalProfile[]> {
+    return withDb("getTrainerClients", (db) =>
+      db.profiles
+        .where("trainer_id")
+        .equals(trainerId)
+        .filter((p) => p.role === "client")
+        .toArray()
+    );
+  },
+
+  async getTrainerClientNote(
+    trainerId: string,
+    clientId: string
+  ): Promise<TrainerClientNote | undefined> {
+    return withDb("getTrainerClientNote", (db) =>
+      db.trainer_client_notes.get(trainerClientNoteId(trainerId, clientId))
+    );
+  },
+
+  async saveTrainerClientNote(
+    trainerId: string,
+    clientId: string,
+    notes: string | null
+  ): Promise<TrainerClientNote> {
+    const id = trainerClientNoteId(trainerId, clientId);
+    const record: TrainerClientNote = {
+      id,
+      trainer_id: trainerId,
+      client_id: clientId,
+      notes: notes?.trim() || null,
+      sync_status: "pending",
+      updated_at: Date.now(),
+    };
+
+    await withDb("saveTrainerClientNote", async (db) => {
+      await db.transaction(
+        "rw",
+        [db.trainer_client_notes, db.sync_queue],
+        async () => {
+          const existing = await db.trainer_client_notes.get(id);
+          const operation: SyncQueue["operation"] = existing ? "UPDATE" : "CREATE";
+
+          await db.trainer_client_notes.put(record);
+          await db.sync_queue.add(
+            buildQueueItem(
+              "trainer_client_notes",
+              operation,
+              record as unknown as QueuePayload
+            )
+          );
+        }
+      );
+    });
+
+    return record;
+  },
+
+  async hydrateProfileIfOnline(userId: string): Promise<LocalProfile | null> {
+    if (!isOnline()) return null;
+
+    const supabase = getSupabaseClient();
+    let data: Record<string, unknown> | null = null;
+
+    const full = await supabase
+      .from("profiles")
+      .select(PROFILE_REMOTE_SELECT)
+      .eq("id", userId)
+      .maybeSingle();
+
+    if (full.error) {
+      console.warn(
+        "[profileService] Full profile select failed, retrying base columns:",
+        full.error.message
+      );
+      const base = await supabase
+        .from("profiles")
+        .select(PROFILE_REMOTE_SELECT_BASE)
+        .eq("id", userId)
+        .maybeSingle();
+      if (base.error) {
+        console.error("[profileService] hydrate profile:", base.error.message);
+        return null;
+      }
+      data = base.data as Record<string, unknown> | null;
+    } else {
+      data = full.data as Record<string, unknown> | null;
+    }
+
+    if (!data) return null;
+
+    try {
+      return await this.cacheProfileLocally({
+        id: data.id as string,
+        full_name: (data.full_name as string | null) ?? null,
+        avatar_url: (data.avatar_url as string | null) ?? null,
+        role: data.role as UserRole,
+        trainer_id: (data.trainer_id as string | null) ?? null,
+        gender: (data.gender as LocalProfile["gender"]) ?? null,
+        height_cm: (data.height_cm as number | null) ?? null,
+        weight_kg: (data.weight_kg as number | null) ?? null,
+        sync_status: "synced",
+      });
+    } catch (err) {
+      console.error("[profileService] Could not cache hydrated profile:", err);
+      return {
+        id: data.id as string,
+        full_name: (data.full_name as string | null) ?? null,
+        avatar_url: (data.avatar_url as string | null) ?? null,
+        role: data.role as UserRole,
+        trainer_id: (data.trainer_id as string | null) ?? null,
+        gender: (data.gender as LocalProfile["gender"]) ?? null,
+        height_cm: (data.height_cm as number | null) ?? null,
+        weight_kg: (data.weight_kg as number | null) ?? null,
+        sync_status: "synced",
+        updated_at: Date.now(),
+      };
+    }
+  },
+
+  async hydrateTrainerClientsIfOnline(
+    trainerId: string
+  ): Promise<LocalProfile[]> {
+    if (!isOnline()) return [];
+
+    const supabase = getSupabaseClient();
+    const { data, error } = await supabase
+      .from("profiles")
+      .select(PROFILE_REMOTE_SELECT_BASE)
+      .eq("role", "client")
+      .eq("trainer_id", trainerId);
+
+    if (error || !data) {
+      if (error) {
+        console.error("[profileService] hydrate clients:", error.message);
+      }
+      return [];
+    }
+
+    const cached: LocalProfile[] = [];
+    for (const row of data) {
+      const r = row as Record<string, unknown>;
+      try {
+        const profile = await this.cacheProfileLocally({
+          id: r.id as string,
+          full_name: (r.full_name as string | null) ?? null,
+          avatar_url: (r.avatar_url as string | null) ?? null,
+          role: "client",
+          trainer_id: (r.trainer_id as string | null) ?? trainerId,
+          gender: (r.gender as LocalProfile["gender"]) ?? null,
+          height_cm: (r.height_cm as number | null) ?? null,
+          weight_kg: (r.weight_kg as number | null) ?? null,
+          sync_status: "synced",
+        });
+        cached.push(profile);
+      } catch (err) {
+        console.error("[profileService] Skip caching client row:", r.id, err);
+      }
+    }
+    return cached;
+  },
+
+  async hydrateTrainerNotesIfOnline(
+    trainerId: string,
+    clientIds: string[]
+  ): Promise<void> {
+    if (!isOnline() || clientIds.length === 0) return;
+
+    const supabase = getSupabaseClient();
+    const { data, error } = await supabase
+      .from("trainer_client_notes")
+      .select("trainer_id, client_id, notes, updated_at")
+      .eq("trainer_id", trainerId)
+      .in("client_id", clientIds);
+
+    if (error) {
+      console.warn(
+        "[profileService] trainer_client_notes table unavailable:",
+        error.message
+      );
+      return;
+    }
+
+    if (!data) return;
+
+    try {
+      await withDb("hydrateTrainerNotes", async (db) => {
+        for (const row of data) {
+          const note: TrainerClientNote = {
+            id: trainerClientNoteId(row.trainer_id, row.client_id),
+            trainer_id: row.trainer_id,
+            client_id: row.client_id,
+            notes: row.notes ?? null,
+            sync_status: "synced",
+            updated_at: row.updated_at
+              ? new Date(row.updated_at).getTime()
+              : Date.now(),
+          };
+          await db.trainer_client_notes.put(note);
+        }
+      });
+    } catch (err) {
+      console.error("[profileService] Could not cache trainer notes:", err);
+    }
+  },
+};
+import { ensureDbReady } from "../db/dexie";
+import type { Workout, WorkoutBlock, SyncQueue } from "../db/types";
+
+type QueuePayload = Record<string, unknown>;
+
+function buildQueueItem(
+  table_name: SyncQueue["table_name"],
+  operation: SyncQueue["operation"],
+  payload: QueuePayload
+): Omit<SyncQueue, "id"> {
+  return {
+    table_name,
+    operation,
+    payload,
+    timestamp: Date.now(),
+    status: "pending",
+    retries: 0,
+  };
+}
+
+export const workoutService = {
+  async saveWorkoutWithBlocks(
+    workout: Workout,
+    blocks: WorkoutBlock[]
+  ): Promise<void> {
+    const db = await ensureDbReady();
+
+    await db.transaction(
+      "rw",
+      [db.workouts, db.workout_blocks, db.sync_queue],
+      async () => {
+        const existingWorkout = await db.workouts.get(workout.id);
+        const workoutOp: SyncQueue["operation"] = existingWorkout
+          ? "UPDATE"
+          : "CREATE";
+
+        // Сохраняем заметки (notes) вместе с остальными данными тренировки
+        const workoutRecord: Workout = { 
+          ...workout, 
+          notes: workout.notes || null,
+          sync_status: "pending" 
+        };
+        await db.workouts.put(workoutRecord);
+
+        await db.sync_queue.add(
+          buildQueueItem("workouts", workoutOp, workoutRecord as unknown as QueuePayload)
+        );
+
+        const existingBlocks = await db.workout_blocks
+          .where("workout_id")
+          .equals(workout.id)
+          .toArray();
+
+        const existingBlockIds = new Set(existingBlocks.map((b) => b.id));
+        const incomingBlockIds = new Set(blocks.map((b) => b.id));
+
+        await db.workout_blocks.where("workout_id").equals(workout.id).delete();
+
+        const normalizedBlocks: WorkoutBlock[] = blocks.map((block, idx) => ({
+          ...block,
+          workout_id: workout.id,
+          order: idx,
+          sync_status: "pending" as const,
+        }));
+
+        if (normalizedBlocks.length > 0) {
+          await db.workout_blocks.bulkAdd(normalizedBlocks);
+        }
+
+        for (const block of normalizedBlocks) {
+          const blockOp: SyncQueue["operation"] = existingBlockIds.has(block.id)
+            ? "UPDATE"
+            : "CREATE";
+          await db.sync_queue.add(
+            buildQueueItem("workout_blocks", blockOp, block as unknown as QueuePayload)
+          );
+        }
+
+        const removedBlocks = existingBlocks.filter(
+          (b) => !incomingBlockIds.has(b.id)
+        );
+        for (const block of removedBlocks) {
+          await db.sync_queue.add(
+            buildQueueItem("workout_blocks", "DELETE", {
+              id: block.id,
+              workout_id: block.workout_id,
+              name: block.name,
+            } as unknown as QueuePayload)
+          );
+        }
+      }
+    );
+  },
+
+  async getWorkoutWithBlocks(clientId: string, date: string) {
+    const db = await ensureDbReady();
+
+    const workout = await db.workouts
+      .where("[client_id+date]")
+      .equals([clientId, date])
+      .first();
+
+    if (!workout) return null;
+
+    const blocks = await db.workout_blocks
+      .where("workout_id")
+      .equals(workout.id)
+      .sortBy("order");
+
+    return { workout, blocks };
+  },
+
+  async getClientWorkoutsForMonth(
+    clientId: string,
+    year: number,
+    month: number
+  ) {
+    const db = await ensureDbReady();
+    const startStr = `${year}-${String(month).padStart(2, "0")}-01`;
+    const endStr = `${year}-${String(month).padStart(2, "0")}-31`;
+
+    return db.workouts
+      .where("[client_id+date]")
+      .between([clientId, startStr], [clientId, endStr], true, true)
+      .toArray();
+  },
+};// services/sync.service.ts
+import { ensureDbReady } from "../db/dexie";
+import type { FitnessPWA } from "../db/dexie";
+import type { SyncQueue, WorkoutBlock } from "../db/types";
+import { getSupabaseClient } from "../lib/supabase/client";
+import type { SupabaseClient } from "@supabase/supabase-js";
+
+function buildSetsFromBlock(payload: WorkoutBlock): Record<string, unknown>[] {
+  const setsToInsert: Record<string, unknown>[] = [];
+  const exerciseName = payload.name.trim();
+
+  for (const ex of payload.exercises) {
+    const totalSets = ex.sets || 1;
+    for (let i = 0; i < totalSets; i++) {
+      setsToInsert.push({
+        workout_id: payload.workout_id,
+        exercise_name: exerciseName,
+        set_number: i + 1,
+        reps: ex.reps?.toString() || "",
+        weight: ex.weight_kg?.toString() || "0",
+      });
+    }
+  }
+
+  return setsToInsert;
+}
+
+async function markQueueItemFailed(
+  db: FitnessPWA,
+  item: SyncQueue
+): Promise<void> {
+  await db.sync_queue.update(item.id!, {
+    status: item.retries >= 3 ? "failed" : "pending",
+    retries: item.retries + 1,
+  });
+}
+
+export const syncService = {
+  isSyncing: false,
+
+  async hasPending(): Promise<boolean> {
+    try {
+      const db = await ensureDbReady();
+      const count = await db.sync_queue
+        .where("status")
+        .equals("pending")
+        .count();
+      return count > 0;
+    } catch (err) {
+      console.error("[SyncService] hasPending failed:", err);
+      return false;
+    }
+  },
+
+  async startSyncLoopIfNeeded(): Promise<void> {
+    if (!(await this.hasPending())) return;
+    return this.startSyncLoop();
+  },
+
+  async startSyncLoop() {
+    if (this.isSyncing) return;
+    if (typeof navigator !== "undefined" && !navigator.onLine) return;
+
+    this.isSyncing = true;
+
+    const supabase = getSupabaseClient();
+
+    try {
+      const db = await ensureDbReady();
+      const pendingItems = await db.sync_queue
+        .where("status")
+        .equals("pending")
+        .sortBy("timestamp");
+
+      if (pendingItems.length === 0) return;
+
+      const workoutItems = pendingItems.filter((i) => i.table_name === "workouts");
+      const blockItems = pendingItems.filter((i) => i.table_name === "workout_blocks");
+      const profileItems = pendingItems.filter((i) => i.table_name === "profiles");
+      const noteItems = pendingItems.filter(
+        (i) => i.table_name === "trainer_client_notes"
+      );
+
+      for (const item of profileItems) {
+        if (!navigator.onLine) break;
+
+        const success = await this.syncProfile(item, supabase, db);
+        if (success) {
+          await db.sync_queue.delete(item.id!);
+        } else {
+          await markQueueItemFailed(db, item);
+        }
+      }
+
+      for (const item of noteItems) {
+        if (!navigator.onLine) break;
+
+        const success = await this.syncTrainerClientNote(item, supabase, db);
+        if (success) {
+          await db.sync_queue.delete(item.id!);
+        } else {
+          await markQueueItemFailed(db, item);
+        }
+      }
+
+      for (const item of workoutItems) {
+        if (!navigator.onLine) break;
+
+        const success = await this.syncWorkout(item, supabase, db);
+        if (success) {
+          await db.sync_queue.delete(item.id!);
+        } else {
+          await markQueueItemFailed(db, item);
+        }
+      }
+
+      if (navigator.onLine && blockItems.length > 0) {
+        await this.syncWorkoutBlocksBatch(blockItems, supabase, db);
+      }
+    } catch (err) {
+      console.error("[SyncService] Ошибка в цикле синхронизации:", err);
+    } finally {
+      this.isSyncing = false;
+    }
+  },
+
+  async syncWorkoutBlocksBatch(
+    items: SyncQueue[],
+    supabase: SupabaseClient,
+    db: FitnessPWA
+  ): Promise<void> {
+    const deleteItems = items.filter((i) => i.operation === "DELETE");
+    const upsertItems = items.filter(
+      (i) => i.operation === "CREATE" || i.operation === "UPDATE"
+    );
+
+    const deletesByWorkout = new Map<string, SyncQueue[]>();
+    for (const item of deleteItems) {
+      const payload = item.payload as { workout_id: string };
+      const list = deletesByWorkout.get(payload.workout_id) ?? [];
+      list.push(item);
+      deletesByWorkout.set(payload.workout_id, list);
+    }
+
+    for (const [workoutId, workoutDeletes] of deletesByWorkout) {
+      const names = workoutDeletes.map((i) =>
+        String((i.payload as { name: string }).name).trim()
+      );
+
+      try {
+        const { error } = await supabase
+          .from("workout_sets")
+          .delete()
+          .eq("workout_id", workoutId)
+          .in("exercise_name", names);
+
+        if (error) throw error;
+
+        for (const item of workoutDeletes) {
+          await db.sync_queue.delete(item.id!);
+        }
+      } catch (e) {
+        console.error("[SyncService] Batch DELETE blocks failed:", e);
+        for (const item of workoutDeletes) {
+          await markQueueItemFailed(db, item);
+        }
+      }
+    }
+
+    const upsertsByWorkout = new Map<string, SyncQueue[]>();
+    for (const item of upsertItems) {
+      const payload = item.payload as unknown as WorkoutBlock;
+      const list = upsertsByWorkout.get(payload.workout_id) ?? [];
+      list.push(item);
+      upsertsByWorkout.set(payload.workout_id, list);
+    }
+
+    for (const [, workoutUpserts] of upsertsByWorkout) {
+      const workoutId = (workoutUpserts[0].payload as unknown as WorkoutBlock)
+        .workout_id;
+      const exerciseNames = [
+        ...new Set(
+          workoutUpserts.map((i) =>
+            String((i.payload as unknown as WorkoutBlock).name).trim()
+          )
+        ),
+      ];
+
+      try {
+        const { error: deleteError } = await supabase
+          .from("workout_sets")
+          .delete()
+          .eq("workout_id", workoutId)
+          .in("exercise_name", exerciseNames);
+
+        if (deleteError) throw deleteError;
+
+        const setsToInsert = workoutUpserts.flatMap((item) =>
+          buildSetsFromBlock(item.payload as unknown as WorkoutBlock)
+        );
+
+        if (setsToInsert.length > 0) {
+          const { error: insertError } = await supabase
+            .from("workout_sets")
+            .insert(setsToInsert);
+          if (insertError) throw insertError;
+        }
+
+        for (const item of workoutUpserts) {
+          const payload = item.payload as unknown as WorkoutBlock;
+          await db.workout_blocks.update(payload.id, { sync_status: "synced" });
+          await db.sync_queue.delete(item.id!);
+        }
+      } catch (e) {
+        console.error("[SyncService] Batch UPSERT blocks failed:", e);
+        for (const item of workoutUpserts) {
+          await markQueueItemFailed(db, item);
+        }
+      }
+    }
+  },
+
+  async syncProfile(
+    item: SyncQueue,
+    supabase: SupabaseClient,
+    db: FitnessPWA
+  ): Promise<boolean> {
+    try {
+      const payload = item.payload as {
+        id: string;
+        full_name: string | null;
+        avatar_url: string | null;
+        gender: string | null;
+        height_cm: number | null;
+        weight_kg: number | null;
+      };
+
+      if (item.operation === "CREATE" || item.operation === "UPDATE") {
+        const { error } = await supabase
+          .from("profiles")
+          .update({
+            full_name: payload.full_name,
+            avatar_url: payload.avatar_url,
+            gender: payload.gender,
+            height_cm: payload.height_cm,
+            weight_kg: payload.weight_kg,
+          })
+          .eq("id", payload.id);
+
+        if (error) throw error;
+        await db.profiles.update(payload.id, { sync_status: "synced" });
+      }
+      return true;
+    } catch (e) {
+      console.error("[SyncService] syncProfile failed:", e);
+      return false;
+    }
+  },
+
+  async syncTrainerClientNote(
+    item: SyncQueue,
+    supabase: SupabaseClient,
+    db: FitnessPWA
+  ): Promise<boolean> {
+    try {
+      const payload = item.payload as {
+        id: string;
+        trainer_id: string;
+        client_id: string;
+        notes: string | null;
+        updated_at: number;
+      };
+
+      if (item.operation === "CREATE" || item.operation === "UPDATE") {
+        const { error } = await supabase.from("trainer_client_notes").upsert(
+          {
+            trainer_id: payload.trainer_id,
+            client_id: payload.client_id,
+            notes: payload.notes,
+            updated_at: new Date(payload.updated_at).toISOString(),
+          },
+          { onConflict: "trainer_id,client_id" }
+        );
+
+        if (error) throw error;
+        await db.trainer_client_notes.update(payload.id, {
+          sync_status: "synced",
+        });
+      }
+
+      if (item.operation === "DELETE") {
+        const { error } = await supabase
+          .from("trainer_client_notes")
+          .delete()
+          .eq("trainer_id", payload.trainer_id)
+          .eq("client_id", payload.client_id);
+
+        if (error) throw error;
+      }
+
+      return true;
+    } catch (e) {
+      console.error("[SyncService] syncTrainerClientNote failed:", e);
+      return false;
+    }
+  },
+
+  async syncWorkout(
+    item: SyncQueue,
+    supabase: SupabaseClient,
+    db: FitnessPWA
+  ): Promise<boolean> {
+    try {
+      const payload = item.payload as {
+        id: string;
+        client_id: string;
+        trainer_id: string;
+        date: string;
+        title: string;
+        status?: string;
+        is_custom?: boolean;
+      };
+
+      if (item.operation === "CREATE" || item.operation === "UPDATE") {
+        // ИСПРАВЛЕНО: Безопасная обработка trainer_id и сохранение динамического статуса воркаута
+        const rawTrainerId = payload.trainer_id ? payload.trainer_id.trim() : "";
+        const finalTrainerId = rawTrainerId === "" ? null : rawTrainerId;
+
+        const { error } = await supabase.from("workouts").upsert({
+          id: payload.id,
+          client_id: payload.client_id,
+          trainer_id: finalTrainerId, 
+          date: payload.date,
+          name: payload.title,
+          status: payload.status || "active",
+          is_custom: payload.is_custom ?? false
+        });
+
+        if (error) throw error;
+        await db.workouts.update(payload.id, { sync_status: "synced" });
+      }
+      return true;
+    } catch (e) {
+      console.error("[SyncService] syncWorkout failed:", e);
+      return false;
+    }
+  },
+};// db/types.ts
+export type UserRole = "trainer" | "client";
+export type Gender = "male" | "female" | "other";
+export type SyncStatus = "pending" | "synced";
+
+export interface LocalProfile {
+  id: string;
+  full_name: string | null;
+  avatar_url: string | null;
+  role: UserRole;
+  trainer_id: string | null;
+  gender: Gender | null;
+  height_cm: number | null;
+  weight_kg: number | null;
+  sync_status: SyncStatus;
+  updated_at: number;
+}
+
+export interface TrainerClientNote {
+  id: string;
+  trainer_id: string;
+  client_id: string;
+  notes: string | null;
+  sync_status: SyncStatus;
+  updated_at: number;
+}
+
+export interface Workout {
+  id: string;
+  trainer_id: string;
+  client_id: string;
+  date: string;
+  title: string;
+  name: string;          // Добавлено
+  status: string;        // Добавлено
+  is_custom: boolean;    // Добавлено
+  notes: string | null;
+  sync_status: SyncStatus;
+}
+
+export interface WorkoutBlock {
+  id: string;
+  workout_id: string;
+  name: string;
+  order: number;
+  exercises: Exercise[];
+  sync_status: SyncStatus;
+}
+
+export interface Exercise {
+  id: string;
+  name: string;
+  sets: number | null;
+  reps: number | null;
+  weight_kg: number | null;
+  duration_sec: number | null;
+  notes: string | null;
+}
+
+export type SyncTableName =
+  | "workouts"
+  | "workout_blocks"
+  | "local_messages"
+  | "profiles"
+  | "trainer_client_notes";
+
+export interface SyncQueue {
+  id?: number;
+  table_name: SyncTableName;
+  operation: "CREATE" | "UPDATE" | "DELETE";
+  payload: Record<string, unknown>;
+  timestamp: number;
+  status: "pending" | "failed";
+  retries: number;
+}
+
+export interface LocalMessage {
+  id: string;
+  sender_id: string;
+  receiver_id: string;
+  text: string;
+  workout_context_id?: string;
+  timestamp: number;
+  sync_status: SyncStatus;
+}
+
+export function trainerClientNoteId(trainerId: string, clientId: string): string {
+  return `${trainerId}__${clientId}`;
+}import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+
+// Используем non-null assertion оператор (!) только после проверки
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+
+if (!supabaseUrl || !supabaseAnonKey) {
+  // Выводим ошибку в консоль, чтобы сразу было понятно, что переменные не подтянулись
+  console.error("CRITICAL: Supabase environment variables are missing!");
+}
+
+let browserSupabaseClient: SupabaseClient | null = null;
+
+export const getSupabaseClient = (): SupabaseClient => {
+  // 1. Серверная среда (SSR)
+  if (typeof window === "undefined") {
+    return createClient(supabaseUrl || "", supabaseAnonKey || "", {
+      auth: {
+        persistSession: false,
+      },
+    });
+  }
+
+  // 2. Клиентская среда (Браузер)
+  // Используем проверку наличия ключей, чтобы не плодить ошибки при пустых переменных
+  if (!browserSupabaseClient) {
+    browserSupabaseClient = createClient(supabaseUrl || "", supabaseAnonKey || "", {
+      auth: {
+        persistSession: true,
+        autoRefreshToken: true,
+        detectSessionInUrl: true,
+        // Явно используем window, чтобы не было ошибок при SSR-сборке
+        storage: window.localStorage, 
+      },
+    });
+  }
+
+  return browserSupabaseClient;
+};

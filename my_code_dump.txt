@@ -1,0 +1,2270 @@
+=== FILE: app/settings/page.tsx ===
+"use client";
+
+import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { useRouter } from "next/navigation";
+import { motion, AnimatePresence } from "framer-motion";
+import toast from "react-hot-toast";
+import { ArrowLeft, User, CloudOff, Cloud, Loader2 } from "lucide-react";
+import { useAuth } from "@/providers/AuthProvider";
+import type { Gender, LocalProfile } from "@/db/types";
+import { profileService } from "@/services/profile.service";
+import { syncService } from "@/services/sync.service";
+
+// Типы для формы
+interface ProfileFormState {
+  full_name: string;
+  avatar_url: string;
+  gender: Gender | "";
+  height_cm: string;
+  weight_kg: string;
+}
+
+// Вспомогательные функции (восстановлены)
+function emptyForm(): ProfileFormState {
+  return {
+    full_name: "",
+    avatar_url: "",
+    gender: "",
+    height_cm: "",
+    weight_kg: "",
+  };
+}
+
+function parseOptionalNumber(value: string): number | null {
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  const n = Number(trimmed);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+export default function SettingsPage() {
+  const { user, profile, loading, refreshProfile } = useAuth();
+  const router = useRouter();
+  const [activeTab, setActiveTab] = useState<"profile" | "clients">("profile");
+  const [form, setForm] = useState<ProfileFormState>(emptyForm());
+  const [isSavingProfile, setIsSavingProfile] = useState(false);
+
+  // Восстановлена функция сохранения
+  const handleSaveProfile = async () => {
+    if (!user?.id || !profile) return;
+
+    const height = parseOptionalNumber(form.height_cm);
+    const weight = parseOptionalNumber(form.weight_kg);
+
+    setIsSavingProfile(true);
+    try {
+      const updated: LocalProfile = {
+        ...profile,
+        id: user.id,
+        full_name: form.full_name.trim() || null,
+        avatar_url: form.avatar_url.trim() || null,
+        gender: (form.gender === "" ? null : form.gender) as Gender,
+        height_cm: height,
+        weight_kg: weight,
+        sync_status: "pending",
+        updated_at: new Date().toISOString(),
+      };
+
+      await profileService.saveProfile(updated);
+      await refreshProfile();
+      toast.success("ПРОФИЛЬ СОХРАНЕН");
+    } catch (err) {
+      toast.error("ОШИБКА СОХРАНЕНИЯ");
+    } finally {
+      setIsSavingProfile(false);
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-[#0A0A0A] text-[#E1E3E6] font-mono antialiased pb-28">
+      <header className="border-b border-[#262626] bg-[#0A0A0A]/90 backdrop-blur-md sticky top-0 z-50">
+        <div className="mx-auto max-w-2xl px-4 h-16 flex items-center justify-between">
+          <button onClick={() => router.push("/")} className="flex items-center gap-2 text-[9px] uppercase tracking-widest text-[#989AA0] hover:text-white transition">
+            <ArrowLeft className="w-3.5 h-3.5" /> НАЗАД
+          </button>
+          <h1 className="text-[10px] font-black uppercase tracking-[0.25em] text-white">ЛИЧНЫЕ НАСТРОЙКИ</h1>
+          <div className="text-[#515359]"><Cloud className="w-3.5 h-3.5" /></div>
+        </div>
+      </header>
+
+      <main className="mx-auto max-w-2xl px-4 py-8 space-y-6">
+        <AnimatePresence mode="wait">
+          <motion.section key="profile" className="space-y-6">
+            <div className="bg-[#141519] border border-[#262626] rounded-xl p-6">
+              <p className="text-[8px] uppercase tracking-[0.2em] text-[#989AA0] mb-6 font-bold">ДАННЫЕ ПРОФИЛЯ</p>
+
+              <div className="flex flex-col sm:flex-row gap-6 items-start mb-8">
+                <div className="w-20 h-20 rounded-lg border border-[#262626] bg-[#0A0A0A] flex items-center justify-center overflow-hidden shrink-0">
+                  <User className="w-8 h-8 text-[#262626]" />
+                </div>
+                <div className="flex-1 w-full space-y-4">
+                  <FormField label="ПОЛНОЕ ИМЯ" id="full_name">
+                    <input id="full_name" type="text" value={form.full_name} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setForm((f: ProfileFormState) => ({...f, full_name: e.target.value}))} className={inputClass} />
+                  </FormField>
+                  <FormField label="ФОТО (URL)" id="avatar_url">
+                    <input id="avatar_url" type="url" value={form.avatar_url} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setForm((f: ProfileFormState) => ({...f, avatar_url: e.target.value}))} className={inputClass} />
+                  </FormField>
+                </div>
+              </div>
+
+              <div className="grid sm:grid-cols-2 gap-4">
+                <FormField label="РОСТ (СМ)" id="height_cm">
+                  <input id="height_cm" type="number" value={form.height_cm} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setForm((f: ProfileFormState) => ({...f, height_cm: e.target.value}))} className={inputClass} />
+                </FormField>
+                <FormField label="ВЕС (КГ)" id="weight_kg">
+                  <input id="weight_kg" type="number" value={form.weight_kg} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setForm((f: ProfileFormState) => ({...f, weight_kg: e.target.value}))} className={inputClass} />
+                </FormField>
+              </div>
+            </div>
+
+            <button onClick={handleSaveProfile} disabled={isSavingProfile} className="w-full bg-white text-black font-black py-4 rounded-xl text-[10px] uppercase tracking-widest hover:bg-[#00E676] transition-all">
+              {isSavingProfile ? "СИНХРОНИЗАЦИЯ..." : "СОХРАНИТЬ ДАННЫЕ"}
+            </button>
+          </motion.section>
+        </AnimatePresence>
+      </main>
+    </div>
+  );
+}
+
+const inputClass = "w-full bg-[#0A0A0A] border border-[#262626] rounded-lg px-4 py-3 text-[11px] text-white placeholder:text-[#333] focus:outline-none focus:border-[#00E676] transition-all";
+
+function FormField({ label, id, children }: { label: string; id: string; children: ReactNode }) {
+  return (
+    <div className="space-y-1.5">
+      <label htmlFor={id} className="block text-[8px] font-bold uppercase tracking-[0.2em] text-[#989AA0]">{label}</label>
+      {children}
+    </div>
+  );
+}
+
+=== FILE: app/chat/[id]/ContextChatEngine.tsx ===
+// app/chat/ContextChatEngine.tsx
+"use client";
+
+import React, { useState } from "react";
+import { Send, Pin, CalendarDays, ArrowUpRight } from "lucide-react";
+import { ChatMessage, WorkoutRoutine } from "@/db/types";
+
+interface ContextChatEngineProps {
+  currentUserRole: "trainer" | "athlete";
+  activeRoutineContext?: WorkoutRoutine | null;
+  onNavigateToWorkout: (dateStr: string) => void;
+}
+
+export default function ContextChatEngine({ currentUserRole, activeRoutineContext, onNavigateToWorkout }: ContextChatEngineProps) {
+  const [messages, setMessages] = useState<ChatMessage[]>([
+    { id: "1", sender: "trainer", text: "Привет! Спроектировал тебе тяжелый блок. Постарайся зафиксировать вес чисто.", timestamp: Date.now() - 3600000 },
+    { id: "2", sender: "athlete", text: "Привет, принял. В оффлайне все запишется, если что.", timestamp: Date.now() - 1800000 }
+  ]);
+  const [inputText, setInputText] = useState("");
+  const [attachAnchor, setAttachAnchor] = useState(false);
+
+  const handleSendMessage = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!inputText.trim() && !attachAnchor) return;
+
+    const newMessage: ChatMessage = {
+      id: crypto.randomUUID(),
+      sender: currentUserRole,
+      text: inputText.trim(),
+      timestamp: Date.now(),
+      anchorWorkout: attachAnchor && activeRoutineContext ? { id: activeRoutineContext.id, title: activeRoutineContext.title, date: activeRoutineContext.date } : undefined
+    };
+
+    setMessages([...messages, newMessage]);
+    setInputText("");
+    setAttachAnchor(false);
+  };
+
+  return (
+    <div className="w-full h-[480px] bg-[#0A0A0A] border border-zinc-900 rounded-2xl flex flex-col overflow-hidden text-white shadow-xl">
+      <div className="bg-[#000000] border-b border-zinc-900 p-4 flex items-center justify-between">
+        <div className="flex items-center space-x-2">
+          <div className="w-2 h-2 rounded-full bg-[#0D5C4D] shadow-[0_0_8px_rgba(13,92,77,0.6)]" />
+          <span className="text-xs font-bold uppercase tracking-wider">Рабочий контекст-чат</span>
+        </div>
+        {activeRoutineContext && (
+          <button
+            type="button"
+            onClick={() => setAttachAnchor(!attachAnchor)}
+            className="cursor-pointer px-2.5 py-1 rounded-lg border text-[9px] font-mono font-bold uppercase flex items-center space-x-1.5 transition-all data-[active=true]:bg-[#0D5C4D]/20 data-[active=true]:border-[#0D5C4D] data-[active=true]:text-emerald-400 data-[active=false]:bg-[#000000] data-[active=false]:border-zinc-800 data-[active=false]:text-zinc-500"
+            data-active={attachAnchor}
+          >
+            <Pin className="h-3 w-3" />
+            <span>Закрепить день</span>
+          </button>
+        )}
+      </div>
+
+      <div className="flex-1 overflow-y-auto p-4 space-y-4">
+        {messages.map((msg) => {
+          const isMe = msg.sender === currentUserRole;
+          return (
+            <div key={msg.id} className={`flex flex-col ${isMe ? "items-end" : "items-start"}`}>
+              <div className={`max-w-[80%] rounded-2xl p-3 text-xs leading-relaxed ${msg.sender === "trainer" ? "bg-[#0D5C4D] text-white rounded-tr-none" : "bg-zinc-900 text-zinc-200 rounded-tl-none"}`}>
+                <p>{msg.text}</p>
+                {msg.anchorWorkout && (
+                  <div
+                    onClick={() => onNavigateToWorkout(msg.anchorWorkout!.date)}
+                    className="cursor-pointer bg-[#000000]/50 border border-zinc-900 rounded-xl p-2.5 flex items-center justify-between transition-all group mt-2"
+                  >
+                    <div className="flex items-center space-x-2 overflow-hidden mr-2">
+                      <CalendarDays className="h-3.5 w-3.5 text-[#0D5C4D] shrink-0" />
+                      <div className="truncate font-sans text-[10px]">
+                        <p className="font-bold text-white truncate">{msg.anchorWorkout.title}</p>
+                        <p className="text-[9px] text-zinc-500 font-mono">{msg.anchorWorkout.date}</p>
+                      </div>
+                    </div>
+                    <ArrowUpRight className="h-3.5 w-3.5 text-zinc-500 group-hover:text-emerald-400 transition-all shrink-0" />
+                  </div>
+                )}
+              </div>
+              <span className="text-[8px] font-mono text-zinc-600 mt-1 px-1">
+                {new Date(msg.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+
+      <form onSubmit={handleSendMessage} className="p-3 bg-[#000000] border-t border-zinc-900 space-y-2">
+        <div className="flex items-center space-x-2">
+          <input
+            type="text"
+            value={inputText}
+            onChange={(e) => setInputText(e.target.value)}
+            placeholder="Сообщение..."
+            className="w-full bg-[#0A0A0A] border border-zinc-900 rounded-xl p-2.5 text-xs text-white placeholder-zinc-800 focus:outline-none"
+          />
+          <button type="submit" className="cursor-pointer bg-[#0D5C4D] hover:bg-[#004B49] text-white p-2.5 rounded-xl transition-all"><Send className="h-3.5 w-3.5" /></button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+=== FILE: app/chat/[id]/page.tsx ===
+"use client";
+
+import { useEffect, useState, useRef } from "react";
+import { useRouter, useParams } from "next/navigation";
+import { useAuth } from "@/providers/AuthProvider";
+import { getSupabaseClient } from "@/lib/supabase/client";
+const supabase = getSupabaseClient();
+
+interface Message {
+  id: string;
+  sender_id: string;
+  client_id: string;
+  text: string;
+  created_at: string;
+}
+
+export default function ChatPage() {
+  const { user, profile, loading } = useAuth();
+  const router = useRouter();
+  const params = useParams();
+  const clientId = params.id as string;
+
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [newMessage, setNewMessage] = useState("");
+  const [isSending, setIsSending] = useState(false);
+  const [isFetching, setIsFetching] = useState(true);
+
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  // Защита роута: если загрузка завершена, а юзера нет — отправляем на логин
+  useEffect(() => {
+    if (!loading && !user) {
+      router.push("/login");
+    }
+  }, [loading, user, router]);
+
+  // Загрузка сообщений и подписка на обновления в реальном времени
+  useEffect(() => {
+    if (!user || !clientId) return;
+
+    let isMounted = true;
+
+    const fetchMessages = async () => {
+      setIsFetching(true);
+      const { data, error } = await supabase
+        .from("messages")
+        .select("*")
+        .eq("client_id", clientId)
+        .order("created_at", { ascending: true });
+
+      if (!error && data && isMounted) {
+        setMessages(data);
+      }
+      if (isMounted) setIsFetching(false);
+    };
+
+    fetchMessages();
+
+    const channel = supabase
+      .channel(`room_${clientId}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "INSERT",
+          schema: "public",
+          table: "messages",
+          filter: `client_id=eq.${clientId}`,
+        },
+        (payload) => {
+          const newMsg = payload.new as Message;
+
+          if (isMounted) {
+            setMessages((prev) => {
+              // Жесткая защита от дублирования записей
+              if (prev.some((m) => m.id === newMsg.id)) return prev;
+              return [...prev, newMsg];
+            });
+          }
+        }
+      )
+      .subscribe((status) => {
+        console.log(`[Supabase Realtime] Status for room ${clientId}:`, status);
+      });
+
+    return () => {
+      isMounted = false;
+      supabase.removeChannel(channel);
+    };
+  }, [user, clientId]);
+
+  // Автоматический плавный скролл вниз при изменении массива сообщений
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages]);
+
+  const handleSendMessage = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newMessage.trim() || !user) return;
+
+    setIsSending(true);
+    const textToSend = newMessage.trim();
+    setNewMessage(""); // Очищаем инпут сразу для отзывчивости интерфейса
+
+    // Оптимистичный апдейт: временно добавляем сообщение в UI, 
+    // чтобы пользователь сразу видел его, не дожидаясь ответа сервера
+    const temporaryId = crypto.randomUUID();
+    const optimisticMessage: Message = {
+      id: temporaryId,
+      sender_id: user.id,
+      client_id: clientId,
+      text: textToSend,
+      created_at: new Date().toISOString(),
+    };
+    
+    setMessages((prev) => [...prev, optimisticMessage]);
+
+    const { data, error } = await supabase
+      .from("messages")
+      .insert({
+        sender_id: user.id,
+        client_id: clientId,
+        text: textToSend,
+      })
+      .select()
+      .single();
+
+    if (error) {
+      alert("Ошибка при отправке: " + error.message);
+      // Если ошибка — удаляем оптимистичное сообщение и возвращаем текст в инпут
+      setMessages((prev) => prev.filter((m) => m.id !== temporaryId));
+      setNewMessage(textToSend);
+    } else if (data) {
+      // Заменяем временное сообщение настоящим из базы (с правильным id и таймстампом)
+      setMessages((prev) => prev.map((m) => (m.id === temporaryId ? data : m)));
+    }
+    
+    setIsSending(false);
+  };
+
+  if (loading) {
+    return (
+      <div className="flex h-screen items-center justify-center bg-zinc-950">
+        <div className="h-8 w-8 animate-spin rounded-full border-4 border-zinc-900 border-t-emerald-500"></div>
+      </div>
+    );
+  }
+
+  if (!user) return null;
+
+  const isTrainer = profile?.role === "trainer";
+
+  return (
+    <div className="flex flex-col h-screen bg-zinc-950 text-zinc-50 font-sans antialiased">
+      {/* Шапка чата */}
+      <header className="border-b border-zinc-900 bg-zinc-900/40 backdrop-blur-md sticky top-0 z-50 flex-none">
+        <div className="mx-auto max-w-3xl px-4 h-16 flex items-center justify-between">
+          <button 
+            onClick={() => router.push("/")}
+            className="flex items-center gap-2 text-sm font-medium text-zinc-400 hover:text-white transition"
+          >
+            ← Назад
+          </button>
+          <span className="text-sm font-bold uppercase tracking-widest text-emerald-400">
+            {isTrainer ? "Чат с клиентом" : "Чат с тренером"}
+          </span>
+          <div className="w-16"></div>
+        </div>
+      </header>
+
+      {/* Зона сообщений */}
+      <main className="flex-1 overflow-y-auto p-4 space-y-4 mx-auto w-full max-w-3xl flex flex-col">
+        {isFetching ? (
+          <div className="flex-1 flex items-center justify-center text-zinc-500 text-sm">
+            Загрузка переписки...
+          </div>
+        ) : messages.length === 0 ? (
+          <div className="flex-1 flex items-center justify-center text-zinc-500 text-sm">
+            Здесь пока нет сообщений. Напиши первым!
+          </div>
+        ) : (
+          messages.map((msg) => {
+            const isMe = msg.sender_id === user.id;
+            return (
+              <div key={msg.id} className={`flex ${isMe ? "justify-end" : "justify-start"}`}>
+                <div
+                  className={`max-w-[75%] rounded-2xl px-4 py-2.5 text-sm ${
+                    isMe
+                      ? "bg-emerald-500 text-zinc-950 rounded-br-sm"
+                      : "bg-zinc-900 border border-zinc-800 text-zinc-100 rounded-bl-sm"
+                  }`}
+                >
+                  {msg.text}
+                  <div className={`text-[10px] mt-1 opacity-60 text-right ${isMe ? "text-zinc-900" : "text-zinc-400"}`}>
+                    {new Date(msg.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                  </div>
+                </div>
+              </div>
+            );
+          })
+        )}
+        <div ref={messagesEndRef} className="h-1 flex-none" />
+      </main>
+
+      {/* Подвал с инпутом */}
+      <footer className="border-t border-zinc-900 bg-zinc-950 p-4 flex-none pb-8 sm:pb-4">
+        <form onSubmit={handleSendMessage} className="mx-auto max-w-3xl flex gap-2">
+          <input
+            type="text"
+            value={newMessage}
+            onChange={(e) => setNewMessage(e.target.value)}
+            placeholder="Написать сообщение..."
+            className="flex-1 bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3 text-sm text-white placeholder-zinc-500 focus:outline-none focus:border-emerald-500/50 transition"
+          />
+          <button
+            type="submit"
+            disabled={!newMessage.trim() || isSending}
+            className="rounded-xl bg-emerald-500 hover:bg-emerald-400 disabled:opacity-50 px-6 py-3 text-sm font-bold text-zinc-950 transition shadow-lg shadow-emerald-500/10"
+          >
+            {isSending ? "..." : "▶"}
+          </button>
+        </form>
+      </footer>
+    </div>
+  );
+}
+
+=== FILE: app/register/page.tsx ===
+// app/register/page.tsx
+"use client";
+
+import { useState, Suspense } from "react";
+import { getSupabaseClient } from "@/lib/supabase/client";
+import { useRouter, useSearchParams } from "next/navigation";
+import { motion } from "framer-motion";
+import toast, { Toaster } from "react-hot-toast";
+import { UserPlus, Mail, Lock, User, ArrowLeft, Dumbbell } from "lucide-react";
+
+const supabase = getSupabaseClient();
+
+function RegisterForm() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  
+  const inviteCode = searchParams.get("invite")?.trim() || null;
+  const legacyTrainerId = searchParams.get("trainer_id")?.trim() || null;
+
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [fullName, setFullName] = useState("");
+  const [role, setRole] = useState<"client" | "trainer">(inviteCode || legacyTrainerId ? "client" : "client");
+  const [loading, setLoading] = useState(false);
+
+  const handleRegister = async (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    const cleanEmail = email.trim().toLowerCase();
+    const cleanFullName = fullName.trim().replace(/\s+/g, ' ');
+
+    if (cleanFullName.length < 2) {
+      return toast.error("Введите корректное имя и фамилию");
+    }
+
+    setLoading(true);
+    const loadingToast = toast.loading("Создание аккаунта...");
+
+    try {
+      let finalTrainerId: string | null = null;
+
+      // Проверка реферального инвайт-кода, если регистрируется подопечный
+      if (role === "client" && inviteCode) {
+        const { data: inviteData, error: inviteError } = await supabase
+          .from("trainer_invites")
+          .select("trainer_id, uses_count, max_uses, is_active")
+          .eq("invite_code", inviteCode)
+          .single();
+
+        if (inviteError || !inviteData) {
+          throw new Error("Указанный код приглашения не найден или недействителен.");
+        }
+
+        if (!inviteData.is_active || (inviteData.uses_count >= inviteData.max_uses)) {
+          throw new Error("Срок действия этой ссылки приглашения истёк или исчерпан лимит мест.");
+        }
+
+        finalTrainerId = inviteData.trainer_id;
+      } else if (role === "client" && legacyTrainerId) {
+        finalTrainerId = legacyTrainerId;
+      }
+
+      // Создание пользователя в Supabase Auth (профиль создается автоматически через Postgres-триггер)
+      const { data: authData, error: authError } = await supabase.auth.signUp({
+        email: cleanEmail,
+        password,
+        options: {
+          data: {
+            full_name: cleanFullName,
+            role: role,
+            trainer_id: finalTrainerId,
+          }
+        }
+      });
+
+      if (authError) {
+        if (authError.message.toLowerCase().includes("already registered") || authError.status === 422) {
+          toast.error("Этот Email уже зарегистрирован! Перенаправляем на вход...", { id: loadingToast });
+          setLoading(false);
+          setTimeout(() => router.push("/login"), 1500);
+          return;
+        }
+        throw authError;
+      }
+
+      if (authData?.user) {
+        // Если была успешная регистрация по инвайту — обновляем счетчик на бэкенде
+        if (role === "client" && inviteCode && finalTrainerId) {
+          try {
+            const { data: currentInvite } = await supabase
+              .from("trainer_invites")
+              .select("uses_count")
+              .eq("invite_code", inviteCode)
+              .single();
+              
+            const nextCount = currentInvite ? currentInvite.uses_count + 1 : 1;
+
+            await supabase
+              .from("trainer_invites")
+              .update({ uses_count: nextCount })
+              .eq("invite_code", inviteCode);
+          } catch (syncErr) {
+            console.error("Не удалось обновить счётчик инвайтов:", syncErr);
+          }
+        }
+
+        toast.success("Регистрация успешна! Входим...", { id: loadingToast });
+        setLoading(false);
+
+        // Форсируем перезагрузку на корень, чтобы AuthProvider и миграция Dexie v3 инициализировали чистую сессию
+        setTimeout(() => {
+          window.location.href = "/";
+        }, 500);
+        
+      } else {
+        throw new Error("Не удалось получить данные сессии пользователя.");
+      }
+    } catch (error: any) {
+      console.error("[Register Error]:", error);
+      toast.error(error.message || "Неизвестный сбой при регистрации", { id: loadingToast });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="flex min-h-screen items-center justify-center bg-zinc-950 px-4 selection:bg-emerald-500/30 py-12">
+      <Toaster position="top-right" toastOptions={{ style: { background: "#0A0A0A", color: "#FFF", border: "1px solid #18181B" } }} />
+      
+      <motion.div 
+        initial={{ opacity: 0, y: 20 }} 
+        animate={{ opacity: 1, y: 0 }} 
+        transition={{ duration: 0.5 }}
+        className="w-full max-w-md space-y-8 rounded-3xl border border-zinc-900 bg-zinc-900/20 p-8 backdrop-blur-xl relative"
+      >
+        <button 
+          type="button" 
+          onClick={() => router.push('/login')}
+          className="absolute left-6 top-8 text-zinc-500 hover:text-white transition flex items-center gap-2 text-sm"
+        >
+          <ArrowLeft className="w-4 h-4" />
+        </button>
+
+        <div className="flex flex-col items-center space-y-4 pt-4">
+          <motion.div 
+            whileHover={{ scale: 1.05 }}
+            className="flex h-16 w-16 items-center justify-center rounded-2xl bg-emerald-500 text-zinc-950 shadow-[0_0_30px_rgba(16,185,129,0.2)]"
+          >
+            <UserPlus className="h-8 w-8" />
+          </motion.div>
+          <div className="text-center">
+            <h1 className="text-2xl font-black uppercase tracking-tighter text-white">Создать аккаунт</h1>
+            {inviteCode || legacyTrainerId ? (
+              <p className="text-sm font-medium text-emerald-400 mt-1 flex items-center justify-center gap-1.5">
+                <Dumbbell className="w-3.5 h-3.5" /> Регистрация по приглашению тренера
+              </p>
+            ) : (
+              <p className="text-sm font-medium text-zinc-500 mt-1">Присоединяйтесь к myofitness</p>
+            )}
+          </div>
+        </div>
+
+        <form onSubmit={handleRegister} className="mt-8 space-y-4">
+          <div className="space-y-1">
+            <div className="relative flex items-center">
+              <User className="absolute left-4 h-4 w-4 text-zinc-600" />
+              <input
+                type="text" 
+                required 
+                value={fullName} 
+                onChange={(e) => setFullName(e.target.value)}
+                className="w-full rounded-2xl border border-zinc-800 bg-zinc-950 py-4 pl-11 pr-4 text-sm text-white placeholder-zinc-700 outline-none transition focus:border-emerald-500/50 focus:ring-1 focus:ring-emerald-500/50"
+                placeholder="Имя и Фамилия"
+              />
+            </div>
+          </div>
+
+          <div className="space-y-1">
+            <div className="relative flex items-center">
+              <Mail className="absolute left-4 h-4 w-4 text-zinc-600" />
+              <input
+                type="email" 
+                required 
+                value={email} 
+                onChange={(e) => setEmail(e.target.value)}
+                className="w-full rounded-2xl border border-zinc-800 bg-zinc-950 py-4 pl-11 pr-4 text-sm text-white placeholder-zinc-700 outline-none transition focus:border-emerald-500/50 focus:ring-1 focus:ring-emerald-500/50"
+                placeholder="Email"
+              />
+            </div>
+          </div>
+
+          <div className="space-y-1">
+            <div className="relative flex items-center">
+              <Lock className="absolute left-4 h-4 w-4 text-zinc-600" />
+              <input
+                type="password" 
+                required 
+                minLength={6} 
+                value={password} 
+                onChange={(e) => setPassword(e.target.value)}
+                className="w-full rounded-2xl border border-zinc-800 bg-zinc-950 py-4 pl-11 pr-4 text-sm text-white placeholder-zinc-700 outline-none transition focus:border-emerald-500/50 focus:ring-1 focus:ring-emerald-500/50"
+                placeholder="Пароль (минимум 6 символов)"
+              />
+            </div>
+          </div>
+
+          {!inviteCode && !legacyTrainerId && (
+            <div className="flex gap-2 pt-2">
+              <button
+                type="button" 
+                onClick={() => setRole("client")}
+                className={`flex-1 rounded-xl py-2.5 text-xs font-bold uppercase tracking-wider transition border ${
+                  role === "client" ? "bg-zinc-800 border-emerald-500/50 text-white" : "bg-zinc-950 border-zinc-800 text-zinc-500 hover:text-zinc-300"
+                }`}
+              >
+                Я Клиент
+              </button>
+              <button
+                type="button" 
+                onClick={() => setRole("trainer")}
+                className={`flex-1 rounded-xl py-2.5 text-xs font-bold uppercase tracking-wider transition border ${
+                  role === "trainer" ? "bg-zinc-800 border-emerald-500/50 text-white" : "bg-zinc-950 border-zinc-800 text-zinc-500 hover:text-zinc-300"
+                }`}
+              >
+                Я Тренер
+              </button>
+            </div>
+          )}
+
+          <button
+            type="submit" 
+            disabled={loading}
+            className="group relative mt-4 flex w-full items-center justify-center gap-2 rounded-2xl bg-emerald-500 py-4 text-sm font-bold text-zinc-950 shadow-lg shadow-emerald-500/10 transition hover:bg-emerald-400 disabled:opacity-50"
+          >
+            {loading ? (
+              <div className="h-5 w-5 animate-spin rounded-full border-2 border-zinc-900 border-t-transparent" />
+            ) : (
+              "ЗАРЕГИСТРИРОВАТЬСЯ"
+            )}
+          </button>
+        </form>
+
+        <div className="text-center text-sm text-zinc-400 pt-4">
+          Уже есть аккаунт?{" "}
+          <button
+            type="button" 
+            onClick={() => router.push('/login')}
+            className="font-medium text-emerald-400 hover:text-emerald-300 transition"
+          >
+            Войти
+          </button>
+        </div>
+      </motion.div>
+    </div>
+  );
+}
+
+export default function RegisterPage() {
+  return (
+    <Suspense fallback={<div className="flex min-h-screen items-center justify-center bg-zinc-950 text-emerald-500">Загрузка...</div>}>
+      <RegisterForm />
+    </Suspense>
+  );
+}
+
+=== FILE: app/layout.tsx ===
+import type { Metadata } from "next";
+import { Inter } from "next/font/google";
+import "./globals.css";
+import { Toaster } from "react-hot-toast";
+import { AuthProvider } from "@/providers/AuthProvider";
+import Link from "next/link";
+import { User } from "lucide-react";
+
+const inter = Inter({ subsets: ["latin"] });
+
+export const metadata: Metadata = {
+  title: "MyoFitness | Платформа для тренеров",
+  description: "Оперативный контроль активности и результатов клиентов",
+};
+
+export default function RootLayout({
+  children,
+}: Readonly<{
+  children: React.ReactNode;
+}>) {
+  return (
+    <html lang="ru">
+      <body className={inter.className}>
+        <AuthProvider>
+          {children}
+
+          {/* Фиксированная премиальная кнопка Личного Кабинета */}
+          <Link
+            href="/settings"
+            className="fixed bottom-6 right-6 z-50 p-3 bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-emerald-400 hover:border-emerald-500/50 rounded-xl shadow-lg transition-all duration-200 flex items-center justify-center hover:scale-105 active:scale-95 group backdrop-blur-md"
+            title="Личные настройки"
+          >
+            <User size={22} className="group-hover:animate-pulse" />
+          </Link>
+
+          <Toaster 
+            position="top-center"
+            toastOptions={{
+              style: {
+                background: '#18181b', // bg-zinc-900
+                color: '#fff',
+                border: '1px solid #27272a', // border-zinc-800
+                fontSize: '14px',
+                borderRadius: '12px',
+              },
+              success: {
+                iconTheme: {
+                  primary: '#10b981', // emerald-500
+                  secondary: '#09090b', // zinc-950
+                },
+              },
+            }} 
+          />
+        </AuthProvider>
+      </body>
+    </html>
+  );
+}
+
+=== FILE: app/history/page.tsx ===
+// app/history/page.tsx
+"use client";
+
+import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
+import { useAuth } from "@/providers/AuthProvider";
+import { getSupabaseClient } from "@/lib/supabase/client";
+const supabase = getSupabaseClient();
+import { motion } from "framer-motion";
+import { ArrowLeft, FolderClock, Trophy, CalendarDays, Dumbbell, User, MessageSquare } from "lucide-react";
+
+interface CompletedWorkout {
+  id: string;
+  name: string;
+  date: string;
+  notes?: string | null;
+  profiles?: {
+    full_name: string | null;
+  } | null;
+  workout_sets: {
+    exercise_name: string;
+    reps: string;
+    weight: string;
+  }[];
+}
+
+export default function HistoryPage() {
+  const { user, profile, loading: authLoading } = useAuth();
+  const router = useRouter();
+  const [history, setHistory] = useState<CompletedWorkout[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    if (authLoading) return;
+
+    if (!user) {
+      router.push("/login");
+      return;
+    }
+
+    const fetchHistory = async () => {
+      try {
+        let query = supabase
+          .from("workouts")
+          .select(`
+            id,
+            name,
+            date,
+            notes,
+            profiles:client_id ( full_name ),
+            workout_sets ( exercise_name, reps, weight )
+          `)
+          .eq("status", "completed")
+          .order("date", { ascending: false });
+
+        if (profile?.role === "client") {
+          query = query.eq("client_id", user.id);
+        } else if (profile?.role === "trainer") {
+          query = query.eq("trainer_id", user.id);
+        } else {
+          setIsLoading(false);
+          return;
+        }
+
+        const { data, error } = await query;
+
+        if (error) throw error;
+        setHistory((data || []) as unknown as CompletedWorkout[]);
+      } catch (error) {
+        console.error("Ошибка загрузки истории тренировок:", error);
+      } finally {
+        setIsLoading(false); 
+      }
+    };
+
+    fetchHistory();
+  }, [user, profile, authLoading, router]);
+
+  if (authLoading || isLoading) {
+    return (
+      <div className="flex h-screen w-screen items-center justify-center bg-zinc-950">
+        <div className="flex flex-col items-center gap-4">
+          <div className="h-10 w-10 animate-spin rounded-full border-4 border-zinc-900 border-t-emerald-500"></div>
+          <p className="text-sm font-sans font-medium text-zinc-500 tracking-wider">Загрузка архива...</p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-zinc-950 text-zinc-50 font-sans antialiased">
+      {/* ШАПКА АРХИВА */}
+      <header className="border-b border-zinc-900 bg-zinc-950/80 backdrop-blur-md sticky top-0 z-50 px-4">
+        <div className="mx-auto max-w-xl flex h-16 items-center gap-4">
+          <button 
+            onClick={() => router.push("/")}
+            className="p-2 -ml-2 text-zinc-400 hover:text-white transition rounded-xl hover:bg-zinc-900"
+          >
+            <ArrowLeft className="w-5 h-5" />
+          </button>
+          <div className="flex items-center gap-3">
+            <FolderClock className="w-5 h-5 text-emerald-500" />
+            <span className="text-base font-bold text-white tracking-wide">Архив тренировок</span>
+          </div>
+        </div>
+      </header>
+
+      {/* ОСНОВНОЙ КОНТЕНТ */}
+      <main className="mx-auto max-w-xl px-4 py-6 space-y-6">
+        {history.length === 0 ? (
+          <motion.div 
+            initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
+            className="rounded-2xl border border-dashed border-zinc-800 bg-zinc-900/10 p-12 text-center flex flex-col items-center gap-3"
+          >
+            <div className="w-12 h-12 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400">
+              <Dumbbell className="w-5 h-5" />
+            </div>
+            <div className="space-y-1">
+              <p className="text-xs font-bold text-zinc-200 uppercase tracking-wider">Архив пуст</p>
+              <p className="text-[11px] text-zinc-500 max-w-xs mx-auto leading-relaxed">
+                {profile?.role === "trainer" 
+                  ? "Подопечные пока не завершили ни одной тренировки из плана." 
+                  : "Завершите свою первую тренировку на главном экране, чтобы она появилась здесь."}
+              </p>
+            </div>
+          </motion.div>
+        ) : (
+          <div className="space-y-4">
+            {history.map((workout, idx) => {
+              // Исправлено: чистим пробелы для корректной группировки
+              const exercises = Array.from(
+                new Set(workout.workout_sets.map(s => s.exercise_name?.trim()).filter(Boolean))
+              );
+              
+              return (
+                <motion.div 
+                  key={workout.id}
+                  initial={{ opacity: 0, y: 15 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: Math.min(idx * 0.05, 0.4) }}
+                  className="rounded-2xl border border-zinc-900 bg-zinc-900/10 p-5 space-y-4"
+                >
+                  <div className="flex justify-between items-start gap-4">
+                    <div className="space-y-1 flex-1 min-w-0">
+                      {profile?.role === "trainer" && workout.profiles?.full_name && (
+                        <div className="flex items-center gap-1.5 text-[10px] uppercase font-bold text-emerald-400 bg-emerald-500/5 border border-emerald-500/10 px-2 py-0.5 rounded-md w-fit mb-1 truncate">
+                          <User className="w-2.5 h-2.5" />
+                          <span>{workout.profiles.full_name}</span>
+                        </div>
+                      )}
+                      <h3 className="text-sm font-bold text-zinc-100 truncate">{workout.name}</h3>
+                      <div className="flex items-center gap-1.5 text-[11px] text-zinc-500 font-medium">
+                        <CalendarDays className="w-3.5 h-3.5" />
+                        {new Date(workout.date).toLocaleDateString('ru-RU', { 
+                          day: 'numeric', month: 'long', year: 'numeric' 
+                        })}
+                      </div>
+                    </div>
+                    <div className="w-9 h-9 rounded-xl bg-emerald-500/10 flex items-center justify-center border border-emerald-500/20 flex-shrink-0">
+                      <Trophy className="w-4 h-4 text-emerald-500" />
+                    </div>
+                  </div>
+
+                  {/* Список упражнений и подходов */}
+                  <div className="bg-zinc-950/60 rounded-xl p-4 border border-zinc-900/60 space-y-2.5">
+                    {exercises.map(ex => {
+                      // Исправлено: фильтруем с .trim() для исключения 0 подходов
+                      const sets = workout.workout_sets.filter(s => s.exercise_name?.trim() === ex);
+                      const setsCount = sets.length > 0 ? sets.length : 1;
+
+                      return (
+                        <div key={ex} className="text-xs flex justify-between items-center text-zinc-300 gap-4">
+                          <span className="font-medium truncate">{ex}</span>
+                          <span className="text-[10px] text-zinc-500 font-mono bg-zinc-900/80 px-2 py-0.5 rounded border border-zinc-900">
+                            {setsCount} подх.
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {workout.notes && (
+                    <div className="flex gap-2 rounded-xl bg-zinc-950 border border-zinc-900 p-3 text-xs text-zinc-400">
+                      <MessageSquare className="w-4 h-4 text-zinc-600 flex-shrink-0 mt-0.5" />
+                      <div className="space-y-0.5">
+                        <p className="text-[10px] uppercase font-bold text-zinc-500 tracking-wider">Отчет:</p>
+                        <p className="leading-relaxed italic">«{workout.notes}»</p>
+                      </div>
+                    </div>
+                  )}
+                </motion.div>
+              )
+            })}
+          </div>
+        )}
+      </main>
+    </div>
+  );
+}
+
+=== FILE: app/page.tsx ===
+"use client";
+
+import { useEffect, useState, useRef } from "react";
+import { useRouter } from "next/navigation";
+import { useAuth } from "@/providers/AuthProvider"; 
+import { getSupabaseClient } from "@/lib/supabase/client";
+import { LogOut, Dumbbell, MessageSquare, PlusCircle, Settings, Calendar, User } from "lucide-react";
+import toast, { Toaster } from "react-hot-toast";
+
+// Наша дизайн-система
+import { Card, Button, Input } from "@/components/ui/myo";
+
+const supabase = getSupabaseClient();
+
+export default function RootPage() {
+  const authContext = useAuth();
+  const { user, profile, loading } = authContext || {};
+  const router = useRouter();
+
+  // --- Состояния ---
+  const [activeTab, setActiveTab] = useState<"workout" | "chat">("workout");
+  const [workoutsList, setWorkoutsList] = useState<any[]>([]);
+  const [comment, setComment] = useState("");
+  const [isFinishing, setIsFinishing] = useState<string | null>(null);
+
+  // --- Логика (сохранена) ---
+  const handleSignOut = async () => {
+    await supabase.auth.signOut();
+    router.replace("/login");
+  };
+
+  const handleFinishWorkout = async (workout: any) => {
+    setIsFinishing(workout.id);
+    // ... твой код обновления статуса ...
+    toast.success("ТРЕНИРОВКА ЗАФИКСИРОВАНА");
+    setIsFinishing(null);
+  };
+
+  if (loading) return <div>ЗАГРУЗКА...</div>;
+
+  return (
+    <div className="min-h-screen bg-[#0A0A0A] text-[#E1E3E6] font-mono">
+      <Toaster />
+
+      <header className="border-b border-[#222328] sticky top-0 bg-[#0A0A0A]/90 backdrop-blur-md p-4">
+        <div className="max-w-5xl mx-auto flex items-center justify-between">
+          <span className="text-base font-black text-white">myoFitnes</span>
+          <div className="flex gap-2">
+            <Button variant={activeTab === "workout" ? "primary" : "secondary"} onClick={() => setActiveTab("workout")}>
+              <Dumbbell className="h-3 w-3" />
+            </Button>
+            <Button variant="danger" onClick={handleSignOut}>
+              <LogOut className="h-3 w-3" />
+            </Button>
+          </div>
+        </div>
+      </header>
+
+      <main className="mx-auto max-w-5xl p-4">
+        {activeTab === "workout" && (
+          <div className="space-y-6">
+            {workoutsList.map((workout) => (
+              <Card key={workout.id}>
+                <h4 className="font-bold uppercase text-white mb-4">{workout.name}</h4>
+                <Input 
+                  value={comment} 
+                  onChange={(e) => setComment(e.target.value)} 
+                  placeholder="ОСТАВИТЬ ЗАМЕТКУ..." 
+                />
+                <Button 
+                  className="w-full mt-3" 
+                  onClick={() => handleFinishWorkout(workout)}
+                  disabled={isFinishing === workout.id}
+                >
+                  {isFinishing === workout.id ? "ОТПРАВКА..." : "ЗАФИКСИРОВАТЬ"}
+                </Button>
+              </Card>
+            ))}
+          </div>
+        )}
+      </main>
+    </div>
+  );
+}
+
+=== FILE: app/client/workouts/PremiumWorkoutBuilder.tsx ===
+"use client";
+
+import { useState, useEffect } from "react";
+import { Dumbbell, Plus, Trash2, Eye, Save } from "lucide-react";
+import { Card, Button, Input } from "@/components/ui/myo";
+import toast from "react-hot-toast";
+
+interface PremiumWorkoutBuilderProps {
+  mode?: "edit" | "create" | "client-log" | string;
+  initialData?: any;
+  onSave?: (updatedRoutine: any) => void;
+}
+
+export default function PremiumWorkoutBuilder({ 
+  mode = "create", 
+  initialData = null, 
+  onSave 
+}: PremiumWorkoutBuilderProps) {
+  const [workoutTitle, setWorkoutTitle] = useState("");
+  const [blocks, setBlocks] = useState<any[]>([]);
+
+  // Безопасная синхронизация входящих данных
+  useEffect(() => {
+    if (initialData) {
+      setWorkoutTitle(initialData.title || initialData.name || "");
+      setBlocks(initialData.blocks || []);
+    }
+  }, [initialData]);
+
+  // Добавление нового блока упражнений
+  const addBlock = () => {
+    const newBlock = {
+      id: crypto.randomUUID(),
+      workout_id: initialData?.id || "",
+      name: "",
+      order: blocks.length,
+      exercises: [
+        {
+          id: crypto.randomUUID(),
+          name: "",
+          sets: [{ id: crypto.randomUUID(), reps: "", weight: "" }]
+        }
+      ]
+    };
+    setBlocks([...blocks, newBlock]);
+  };
+
+  // Удаление блока упражнений
+  const removeBlock = (blockId: string) => {
+    setBlocks(blocks.filter(b => b.id !== blockId));
+  };
+
+  // Изменение названия блока
+  const updateBlockName = (blockId: string, name: string) => {
+    setBlocks(blocks.map(b => b.id === blockId ? { ...b, name } : b));
+  };
+
+  // Добавление сета (подхода) внутрь упражнения в блоке
+  const addSet = (blockId: string) => {
+    setBlocks(blocks.map(b => {
+      if (b.id === blockId) {
+        const currentExercises = b.exercises || [];
+        if (currentExercises.length === 0) {
+          currentExercises.push({ id: crypto.randomUUID(), name: "", sets: [] });
+        }
+        
+        const updatedExercises = [...currentExercises];
+        updatedExercises[0] = {
+          ...updatedExercises[0],
+          sets: [...(updatedExercises[0].sets || []), { id: crypto.randomUUID(), reps: "", weight: "" }]
+        };
+
+        return { ...b, exercises: updatedExercises };
+      }
+      return b;
+    }));
+  };
+
+  // Удаление сета из упражнения в блоке
+  const removeSet = (blockId: string, setId: string) => {
+    setBlocks(blocks.map(b => {
+      if (b.id === blockId && b.exercises && b.exercises[0]) {
+        const updatedExercises = [...b.exercises];
+        updatedExercises[0] = {
+          ...updatedExercises[0],
+          sets: (updatedExercises[0].sets || []).filter((s: any) => s.id !== setId)
+        };
+        return { ...b, exercises: updatedExercises };
+      }
+      return b;
+    }));
+  };
+
+  // Изменение веса или повторений в сете
+  const updateSetData = (blockId: string, setId: string, field: "reps" | "weight", value: string) => {
+    setBlocks(blocks.map(b => {
+      if (b.id === blockId && b.exercises && b.exercises[0]) {
+        const updatedExercises = [...b.exercises];
+        updatedExercises[0] = {
+          ...updatedExercises[0],
+          sets: (updatedExercises[0].sets || []).map((s: any) => 
+            s.id === setId ? { ...s, [field]: value } : s
+          )
+        };
+        return { ...b, exercises: updatedExercises };
+      }
+      return b;
+    }));
+  };
+
+  const handleSaveWorkout = () => {
+    if (!workoutTitle.trim()) {
+      toast.error("ВВЕДИТЕ НАЗВАНИЕ ТРЕНИРОВКИ");
+      return;
+    }
+    if (blocks.length === 0) {
+      toast.error("ДОБАВЬТЕ ХОТЯ БЫ ОДНО УПРАЖНЕНИЕ");
+      return;
+    }
+
+    const payload = {
+      ...initialData,
+      title: workoutTitle,
+      blocks: blocks,
+      isPendingSync: true
+    };
+
+    if (onSave) {
+      onSave(payload);
+    } else {
+      toast.success("ИЗМЕНЕНИЯ ЗАФИКСИРОВАНЫ");
+    }
+  };
+
+  return (
+    <div className="space-y-6 font-mono text-[#E1E3E6]">
+      
+      {/* ВВОД НАЗВАНИЯ ТРЕНИРОВКИ */}
+      <Card className="flex flex-col md:flex-row gap-4 items-center justify-between p-4">
+        <div className="w-full md:max-w-md">
+          <label className="text-[9px] font-bold text-[#989AA0] uppercase tracking-wider block mb-1.5">
+            НАЗВАНИЕ ТРЕНИРОВОЧНОЙ СЕССИИ {mode === "client-log" && "(ЛОГ КЛИЕНТА)"}
+          </label>
+          <Input 
+            placeholder="НАПРИМЕР: СИЛОВАЯ А, СТАНОВАЯ + КОР..." 
+            value={workoutTitle}
+            onChange={(e) => setWorkoutTitle(e.target.value)}
+          />
+        </div>
+        <div className="flex w-full md:w-auto gap-2 self-end md:self-center">
+          <Button variant="secondary" className="flex-1 md:flex-initial h-10 text-[10px]">
+            <Eye className="w-3.5 h-3.5 mr-2" /> ПРЕДПРОСМОТР
+          </Button>
+          <Button variant="primary" onClick={handleSaveWorkout} className="flex-1 md:flex-initial h-10 text-[10px]">
+            <Save className="w-3.5 h-3.5 mr-2" /> СОХРАНИТЬ
+          </Button>
+        </div>
+      </Card>
+
+      {/* СПИСОК БЛОКОВ С УПРАЖНЕНИЯМИ */}
+      <div className="space-y-4">
+        {blocks.map((block, index) => {
+          const mainExercise = block.exercises?.[0];
+          const sets = mainExercise?.sets || [];
+
+          return (
+            <Card key={block.id || index} className="p-4 border border-[#222328] bg-[#111214]/50 relative">
+              
+              {/* ШАПКА БЛОКА */}
+              <div className="flex flex-col sm:flex-row gap-3 justify-between items-start sm:items-center border-b border-[#222328] pb-3 mb-4">
+                <div className="flex items-center gap-3 w-full sm:max-w-md">
+                  <span className="text-[10px] font-black text-[#515359]">#{String(index + 1).padStart(2, '0')}</span>
+                  <Input 
+                    placeholder="УКАЖИТЕ НАЗВАНИЕ УПРАЖНЕНИЯ..." 
+                    value={block.exercises?.[0]?.name || ""}
+                    onChange={(e) => updateBlockName(block.id, e.target.value)}
+                    className="h-8 !text-xs font-bold bg-transparent border-b border-transparent hover:border-zinc-800 focus:border-[#00E676]"
+                  />
+                </div>
+                <Button 
+                  variant="danger" 
+                  onClick={() => removeBlock(block.id)} 
+                  className="h-8 px-2.5 sm:self-center self-end"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                </Button>
+              </div>
+
+              {/* СЕТКА ПОДХОДОВ */}
+              <div className="space-y-2">
+                <div className="grid grid-cols-12 gap-2 text-[9px] font-bold text-[#515359] uppercase tracking-wider px-1">
+                  <div className="col-span-2 text-center">СЕТ</div>
+                  <div className="col-span-4">ВЕС (КГ)</div>
+                  <div className="col-span-4">ПОВТОРЕНИЯ</div>
+                  <div className="col-span-2"></div>
+                </div>
+
+                {sets.map((set: any, setIndex: number) => (
+                  <div key={set.id || setIndex} className="grid grid-cols-12 gap-2 items-center">
+                    <div className="col-span-2 text-center text-xs font-bold text-zinc-500 bg-[#0A0A0A] border border-[#222328] h-9 flex items-center justify-center rounded">
+                      {setIndex + 1}
+                    </div>
+                    
+                    <div className="col-span-4">
+                      <Input 
+                        placeholder="0" 
+                        value={set.weight || ""}
+                        onChange={(e) => updateSetData(block.id, set.id, "weight", e.target.value)}
+                        className="h-9 text-center text-xs text-white"
+                      />
+                    </div>
+
+                    <div className="col-span-4">
+                      <Input 
+                        placeholder="0" 
+                        value={set.reps || ""}
+                        onChange={(e) => updateSetData(block.id, set.id, "reps", e.target.value)}
+                        className="h-9 text-center text-xs text-white"
+                      />
+                    </div>
+
+                    <div className="col-span-2 flex justify-center">
+                      <Button 
+                        variant="secondary" 
+                        onClick={() => removeSet(block.id, set.id)}
+                        disabled={sets.length === 1}
+                        className="h-9 w-full !p-0 border-zinc-800 text-zinc-600 hover:text-red-400 hover:border-red-900/50 disabled:opacity-30"
+                      >
+                        <Trash2 className="w-3 h-3" />
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {/* ДОБАВЛЕНИЕ ПОДХОДА */}
+              <div className="mt-3 flex justify-start">
+                <Button 
+                  variant="secondary" 
+                  onClick={() => addSet(block.id)}
+                  className="h-7 text-[9px] border-dashed border-[#222328] hover:border-zinc-700 px-3"
+                >
+                  <Plus className="w-3 h-3 mr-1" /> ДОБАВИТЬ СЕТ
+                </Button>
+              </div>
+
+            </Card>
+          );
+        })}
+      </div>
+
+      {/* ДОБАВЛЕНИЕ БЛОКА */}
+      <Button 
+        variant="secondary" 
+        onClick={addBlock}
+        className="w-full h-12 border-dashed border-[#222328] hover:border-[#00E676]/30 text-xs tracking-widest text-[#989AA0] hover:text-white transition-all bg-[#111214]/20"
+      >
+        <Dumbbell className="w-4 h-4 mr-2 text-[#515359]" /> ДОБАВИТЬ УПРАЖНЕНИЕ В СЕССИЮ
+      </Button>
+
+    </div>
+  );
+}
+
+=== FILE: app/client/workouts/InteractivePlanner.tsx ===
+"use client";
+
+import React, { useState } from "react";
+import { Copy, ClipboardPaste, Calendar, ChevronLeft, ChevronRight, Edit3, X, Dumbbell } from "lucide-react";
+import { WorkoutRoutine } from "@/db/types";
+import { Card, Button, Input } from "@/components/ui/myo";
+import toast from "react-hot-toast";
+
+interface InteractivePlannerProps {
+  routines: WorkoutRoutine[];
+  onDuplicateRoutine: (targetDate: string, sourceRoutine: WorkoutRoutine) => void;
+}
+
+export default function InteractivePlanner({ routines, onDuplicateRoutine }: InteractivePlannerProps) {
+  const [currentDate] = useState(new Date());
+  const [copiedRoutine, setCopiedRoutine] = useState<WorkoutRoutine | null>(null);
+  const [showEditOverlay, setShowEditOverlay] = useState(false);
+  const [editingRoutine, setEditingRoutine] = useState<WorkoutRoutine | null>(null);
+  const [targetDateStr, setTargetDateStr] = useState("");
+
+  const daysInWeek = Array.from({ length: 7 }, (_, i) => {
+    const current = new Date(currentDate.getTime());
+    const day = current.getDay();
+    const diff = current.getDate() - day + (day === 0 ? -6 : 1) + i; 
+    return new Date(new Date(currentDate).setDate(diff));
+  });
+
+  const getRoutineForDate = (dateStr: string) => routines.find((r) => r.date === dateStr);
+
+  const handleActionPasteInit = (dateStr: string) => {
+    if (!copiedRoutine) return;
+    setTargetDateStr(dateStr);
+    setEditingRoutine({ ...copiedRoutine, id: crypto.randomUUID(), date: dateStr });
+    setShowEditOverlay(true);
+  };
+
+  const handleConfirmOverlay = () => {
+    if (editingRoutine && targetDateStr) {
+      onDuplicateRoutine(targetDateStr, editingRoutine);
+      setShowEditOverlay(false);
+      setEditingRoutine(null);
+    }
+  };
+
+  return (
+    <div className="w-full font-mono text-[#E1E3E6] space-y-4">
+      {/* ХЕДЕР КАЛЕНДАРЯ */}
+      <Card className="flex items-center justify-between p-3.5">
+        <div className="flex items-center space-x-2.5">
+          <Calendar className="h-4 w-4 text-[#00E676]" />
+          <div>
+            <h2 className="text-xs font-black tracking-widest text-white uppercase">СЕТКА ПЛАНИРОВАНИЯ</h2>
+            <p className="text-[8px] text-[#989AA0] uppercase tracking-wider mt-0.5">УПРАВЛЕНИЕ И ДУБЛИРОВАНИЕ СЕССИЙ</p>
+          </div>
+        </div>
+        <div className="flex items-center space-x-1">
+          <Button variant="secondary" className="h-8 w-8 !p-0 border-zinc-800">
+            <ChevronLeft className="h-4 w-4" />
+          </Button>
+          <span className="text-[9px] font-bold uppercase tracking-widest px-2.5 text-[#989AA0]">НЕДЕЛЯ</span>
+          <Button variant="secondary" className="h-8 w-8 !p-0 border-zinc-800">
+            <ChevronRight className="h-4 w-4" />
+          </Button>
+        </div>
+      </Card>
+
+      {/* НЕДЕЛЬНАЯ ТАБЛИЦА */}
+      <div className="grid grid-cols-1 md:grid-cols-7 gap-2">
+        {daysInWeek.map((dayObj) => {
+          const formattedDate = dayObj.toISOString().split("T")[0];
+          const routine = getRoutineForDate(formattedDate);
+          const isToday = new Date().toISOString().split("T")[0] === formattedDate;
+
+          return (
+            <Card
+              key={formattedDate}
+              className={`p-3 min-h-[150px] flex flex-col justify-between transition-all relative
+                ${isToday ? "border-[#00E676]/40 bg-[#00E676]/5" : "border-[#222328] bg-[#111214]/40 hover:border-zinc-700"}
+              `}
+            >
+              <div className="space-y-3">
+                {/* Дата и день недели */}
+                <div className="flex items-center justify-between border-b border-[#222328]/60 pb-1.5">
+                  <span className="text-[9px] font-bold text-[#515359]">
+                    {dayObj.toLocaleDateString("ru-RU", { weekday: "short" }).toUpperCase()}
+                  </span>
+                  <span className={`text-xs font-black tracking-tighter ${isToday ? "text-[#00E676]" : "text-white"}`}>
+                    {dayObj.getDate()}
+                  </span>
+                </div>
+
+                {/* Назначенная тренировка */}
+                {routine ? (
+                  <div className="p-2 bg-[#0A0A0A] border border-[#222328] rounded space-y-1">
+                    <div className="flex items-center gap-1">
+                      <Dumbbell className="w-2.5 h-2.5 text-[#00E676]" />
+                      <p className="text-[10px] font-bold truncate text-white uppercase tracking-wide">{routine.title}</p>
+                    </div>
+                    <p className="text-[8px] font-bold text-[#989AA0] uppercase tracking-wider pl-3.5">
+                      СЕТОВ/БЛОКОВ: {routine.blocks?.length || 0}
+                    </p>
+                  </div>
+                ) : (
+                  <div className="py-1.5 pl-1">
+                    <span className="text-[9px] font-bold text-zinc-700 uppercase tracking-widest">● ОТДЫХ</span>
+                  </div>
+                )}
+              </div>
+
+              {/* Кнопки быстрых действий (Копировать / Вставить) */}
+              <div className="flex items-center justify-end space-x-1 pt-2 border-t border-[#222328]/40">
+                {routine && (
+                  <Button
+                    variant="secondary"
+                    onClick={() => {
+                      setCopiedRoutine(routine);
+                      toast.success(`СЕССИЯ СКОПИРОВАНА: ${routine.title.toUpperCase()}`);
+                    }}
+                    className="h-7 w-7 !p-0 border-zinc-800 text-zinc-500 hover:text-white"
+                  >
+                    <Copy className="h-3 w-3" />
+                  </Button>
+                )}
+                {copiedRoutine && !routine && (
+                  <Button
+                    variant="secondary"
+                    onClick={() => handleActionPasteInit(formattedDate)}
+                    className="h-7 w-7 !p-0 border-[#00E676]/30 bg-[#00E676]/5 text-[#00E676] hover:bg-[#00E676] hover:text-black"
+                  >
+                    <ClipboardPaste className="h-3 w-3" />
+                  </Button>
+                )}
+              </div>
+            </Card>
+          );
+        })}
+      </div>
+
+      {/* ОВЕРЛЕЙ КОРРЕКТИРОВКИ "НА ЛЕТУ" */}
+      {showEditOverlay && editingRoutine && (
+        <div className="fixed inset-0 z-50 bg-[#0A0A0A]/90 backdrop-blur-sm flex items-center justify-center p-4">
+          <Card className="w-full max-w-sm border border-[#00E676]/40 p-5 space-y-5 bg-[#111214] shadow-2xl">
+            <div className="flex items-center justify-between border-b border-[#222328] pb-3">
+              <div className="flex items-center space-x-2">
+                <Edit3 className="h-3.5 w-3.5 text-[#00E676]" />
+                <h3 className="text-xs font-black uppercase tracking-widest text-white">КОРРЕКТИРОВКА НА ЛЕТУ</h3>
+              </div>
+              <Button 
+                variant="secondary" 
+                onClick={() => setShowEditOverlay(false)} 
+                className="h-7 w-7 !p-0 border-zinc-800 text-zinc-500 hover:text-white"
+              >
+                <X className="h-3.5 w-3.5" />
+              </Button>
+            </div>
+
+            <div className="space-y-1.5">
+              <label className="text-[9px] font-bold text-[#989AA0] uppercase tracking-wider block">НАЗВАНИЕ ТРЕНИРОВОЧНОЙ КОПИИ</label>
+              <Input
+                type="text"
+                value={editingRoutine.title}
+                onChange={(e) => setEditingRoutine({ ...editingRoutine, title: e.target.value })}
+              />
+            </div>
+
+            <div className="flex items-center justify-end space-x-2 pt-2">
+              <Button 
+                variant="secondary" 
+                onClick={() => setShowEditOverlay(false)} 
+                className="h-9 text-[10px]"
+              >
+                ОТМЕНА
+              </Button>
+              <Button 
+                variant="primary" 
+                onClick={handleConfirmOverlay} 
+                className="h-9 text-[10px]"
+              >
+                ПОДТВЕРДИТЬ ДУБЛИРОВАНИЕ
+              </Button>
+            </div>
+          </Card>
+        </div>
+      )}
+    </div>
+  );
+}
+
+=== FILE: app/client/workouts/page.tsx ===
+"use client";
+
+import React, { useState, useEffect } from "react";
+import PremiumWorkoutBuilder from "./PremiumWorkoutBuilder";
+import InteractivePlanner from "./InteractivePlanner";
+import ContextChatEngine from "@/app/chat/[id]/ContextChatEngine"; 
+import { WorkoutRoutine } from "@/db/types";
+import { Card } from "@/components/ui/myo";
+import toast, { Toaster } from "react-hot-toast";
+
+const STORAGE_KEY = "myofitnes_offline_routines";
+
+export default function MyoPlannerDashboard() {
+  const [routines, setRoutines] = useState<WorkoutRoutine[]>([]);
+  const [activeRoutine, setActiveRoutine] = useState<WorkoutRoutine | null>(null);
+
+  useEffect(() => {
+    const cached = localStorage.getItem(STORAGE_KEY);
+    if (cached) {
+      try { 
+        setRoutines(JSON.parse(cached)); 
+      } catch (e) { 
+        console.error(e); 
+      }
+    }
+
+    const triggerSyncEngine = async () => {
+      if (!navigator.onLine) return;
+      const currentCached = localStorage.getItem(STORAGE_KEY);
+      if (!currentCached) return;
+
+      const items: WorkoutRoutine[] = JSON.parse(currentCached);
+      const pendingItems = items.filter((r) => r.isPendingSync);
+      if (pendingItems.length === 0) return;
+
+      const syncToast = toast.loading("СИНХРОНИЗАЦИЯ ЛОКАЛЬНЫХ ОФФЛАЙН-ТРЕНИРОВОК...");
+      try {
+        await new Promise((resolve) => setTimeout(resolve, 1500)); 
+        const synced = items.map((r) => (r.isPendingSync ? { ...r, isPendingSync: false } : r));
+        setRoutines(synced);
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(synced));
+        toast.success("ДАННЫЕ УСПЕШНО СИНХРОНИЗИРОВАНЫ!", { id: syncToast });
+      } catch (err) {
+        toast.error("СЕТЕВАЯ ОШИБКА СИНХРОНИЗАЦИИ.", { id: syncToast });
+      }
+    };
+
+    window.addEventListener("online", triggerSyncEngine);
+    if (navigator.onLine) triggerSyncEngine();
+    return () => window.removeEventListener("online", triggerSyncEngine);
+  }, []);
+
+  const handlePersistWorkout = (updatedRoutine: WorkoutRoutine) => {
+    const exists = routines.some((r) => r.id === updatedRoutine.id);
+    const nextRoutines = exists 
+      ? routines.map((r) => (r.id === updatedRoutine.id ? updatedRoutine : r)) 
+      : [...routines, updatedRoutine];
+
+    setRoutines(nextRoutines);
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(nextRoutines));
+    setActiveRoutine(updatedRoutine);
+
+    toast.success(updatedRoutine.isPendingSync ? "СОХРАНЕНО ЛОКАЛЬНО (LOCALSTORAGE)" : "УСПЕШНО СОХРАНЕНО И ОТПРАВЛЕНО");
+  };
+
+  const handleDuplicatePlannerRoutine = (targetDate: string, clonedRoutine: WorkoutRoutine) => {
+    handlePersistWorkout({ 
+      ...clonedRoutine, 
+      id: crypto.randomUUID(), 
+      date: targetDate, 
+      isPendingSync: !navigator.onLine 
+    });
+  };
+
+  // Метод стыковки: принимает Date из планировщика, превращает в ISO-строку YYYY-MM-DD
+  const handleNavigateToDateContext = (dateObj: Date) => {
+    const dateStr = dateObj.toISOString().split("T")[0];
+    const routine = routines.find((r) => r.date === dateStr);
+    if (routine) {
+      setActiveRoutine(routine);
+      toast(`ОТКРЫТ ПЛАН: ${dateStr}`, { icon: "📅" });
+    } else {
+      // Если плана на этот день нет — зануляем контекст, чтобы конструктор открылся чистым для создания
+      setActiveRoutine(null);
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-[#0A0A0A] text-[#E1E3E6] p-4 md:p-6 space-y-6 font-mono antialiased selection:bg-[#00E676] selection:text-black">
+      <Toaster 
+        position="top-right" 
+        toastOptions={{ 
+          style: { 
+            background: "#111214", 
+            color: "#E1E3E6", 
+            border: "1px solid #222328",
+            borderRadius: "0px",
+            fontFamily: "monospace",
+            fontSize: "11px font-bold"
+          } 
+        }} 
+      />
+
+      {/* ШАПКА ДАШБОРДА */}
+      <Card className="max-w-7xl mx-auto flex justify-between items-center p-4 border border-[#222328]">
+        <div>
+          <h1 className="text-sm font-black uppercase tracking-widest text-white">
+            VIBEFITNESS <span className="text-[#00E676]">// CORE</span>
+          </h1>
+          <p className="text-[9px] font-bold text-[#989AA0] uppercase tracking-wider mt-0.5">
+            PREMIUM WORKSPACE v2.0
+          </p>
+        </div>
+        <div className="flex items-center space-x-2">
+          <span className="w-2 h-2 rounded-full bg-[#00E676] animate-pulse" />
+          <span className="text-[9px] font-bold uppercase tracking-wider text-[#989AA0]">ONLINE</span>
+        </div>
+      </Card>
+
+      {/* ОСНОВНАЯ СЕТКА */}
+      <div className="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-12 gap-6">
+        {/* ЛЕВАЯ КОЛОНКА: КАЛЕНДАРЬ И КОНСТРУКТОР */}
+        <div className="lg:col-span-8 space-y-6">
+          <InteractivePlanner 
+            routines={routines} 
+            onDuplicateRoutine={handleDuplicatePlannerRoutine}
+          />
+          <PremiumWorkoutBuilder 
+            mode="client-log" 
+            initialData={activeRoutine} 
+            onSave={handlePersistWorkout} 
+          />
+        </div>
+
+        {/* ПРАВАЯ КОЛОНКА: АССИСТЕНТ */}
+        <div className="lg:col-span-4 w-full">
+          <Card className="p-1 border border-[#222328] bg-[#111214]/30 h-full min-h-[500px]">
+            <ContextChatEngine 
+              currentUserRole="athlete" 
+              activeRoutineContext={activeRoutine} 
+              onNavigateToWorkout={(dateStr: string) => handleNavigateToDateContext(new Date(dateStr))} 
+            />
+          </Card>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+=== FILE: app/client/profile/page.tsx ===
+"use client";
+
+import React from "react";
+import { Card } from "@/components/ui/myo";
+
+export default function ProfilePage() {
+  return (
+    <div className="p-6 font-mono text-[#E1E3E6]">
+      <Card className="p-4">
+        <h1 className="text-xs font-black uppercase tracking-widest text-white">Профиль Атлета</h1>
+        {/* Контент профиля пользователя */}
+        <p className="text-[10px] text-[#989AA0] mt-1">Данные синхронизированы с облаком</p>
+      </Card>
+    </div>
+  );
+}
+
+
+=== FILE: app/client/layout.tsx ===
+"use client";
+
+import React from "react";
+import Sidebar from "@/components/ui/layout/Sidebar";
+
+export default function ClientRootLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="flex flex-col md:flex-row min-h-screen w-full bg-[#0A0A0A] text-[#E1E3E6] font-mono antialiased">
+      {/* Боковая панель */}
+      <div className="w-full md:w-64 flex-shrink-0 border-b md:border-b-0 md:border-r border-[#222328]">
+        <Sidebar />
+      </div>
+
+      {/* Основной контент */}
+      <main className="flex-1 w-full min-w-0 p-4 md:p-6 overflow-x-hidden overflow-y-auto">
+        {children}
+      </main>
+    </div>
+  );
+}
+
+=== FILE: app/client/analytics/page.tsx ===
+"use client";
+
+import React, { useState } from "react";
+import { Card } from "@/components/ui/myo";
+import { WorkoutRoutine } from "@/db/types";
+
+export default function AnalyticsPage() {
+  // Исправлено: Ленивая загрузка кэша убирает каскадный рендеринг
+  const [routines] = useState<WorkoutRoutine[]>(() => {
+    if (typeof window !== "undefined") {
+      const cached = localStorage.getItem("routines");
+      if (cached) {
+        try {
+          return JSON.parse(cached);
+        } catch (e) {
+          console.error("Ошибка загрузки истории для аналитики", e);
+        }
+      }
+    }
+    return [];
+  });
+
+  return (
+    <div className="p-6 space-y-4 font-mono text-[#E1E3E6]">
+      <Card className="p-4">
+        <h1 className="text-xs font-black uppercase tracking-widest text-white">Аналитика тренировок</h1>
+        {/* Исправлено: JSX-комментарий теперь валиден */}
+        <p className="text-[10px] text-[#989AA0] mt-2">Всего тренировок проведено: {routines.length}</p>
+      </Card>
+    </div>
+  );
+}
+
+=== FILE: app/globals.css ===
+@import "tailwindcss";
+
+:root {
+  --background: #ffffff;
+  --foreground: #171717;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #0a0a0a;
+    --foreground: #ededed;
+  }
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: Arial, Helvetica, sans-serif;
+}
+
+
+=== FILE: app/login/page.tsx ===
+"use client";
+
+import { useState } from "react";
+import { getSupabaseClient } from "@/lib/supabase/client";
+const supabase = getSupabaseClient();
+import { useRouter } from "next/navigation";
+import { motion } from "framer-motion";
+import toast from "react-hot-toast";
+import { LogIn, Mail, Lock, Zap } from "lucide-react";
+
+export default function LoginPage() {
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [loading, setLoading] = useState(false);
+  const router = useRouter();
+
+  const handleLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoading(true);
+    const loadingToast = toast.loading("Авторизация...");
+
+    // Санитазация почты от случайных пробелов при автозаполнении на смартфонах
+    const cleanEmail = email.trim().toLowerCase();
+
+    const { error } = await supabase.auth.signInWithPassword({
+      email: cleanEmail,
+      password,
+    });
+
+    if (error) {
+      toast.error("Ошибка входа: " + error.message, { id: loadingToast });
+      setLoading(false);
+    } else {
+      toast.success("С возвращением в MyoFitness!", { id: loadingToast });
+      setLoading(false);
+      
+      // Используем жесткий редирект для мгновенного обновления AuthProvider куками сессии
+      setTimeout(() => {
+        window.location.href = "/";
+      }, 200);
+    }
+  };
+
+  return (
+    <div className="flex min-h-screen items-center justify-center bg-zinc-950 px-4 selection:bg-emerald-500/30">
+      <motion.div 
+        initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }}
+        className="w-full max-w-md space-y-8 rounded-3xl border border-zinc-900 bg-zinc-900/20 p-8 backdrop-blur-xl"
+      >
+        <div className="flex flex-col items-center space-y-4">
+          <motion.div 
+            whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}
+            className="flex h-16 w-16 items-center justify-center rounded-2xl bg-emerald-500 text-zinc-950 shadow-[0_0_30px_rgba(16,185,129,0.2)]"
+          >
+            <Zap className="h-8 w-8 fill-current" />
+          </motion.div>
+          <div className="text-center">
+            <h1 className="text-3xl font-black uppercase tracking-tighter text-white">MyoFitness</h1>
+            <p className="text-sm font-medium text-zinc-500 mt-1">Твои тренировки под контролем</p>
+          </div>
+        </div>
+
+        <form onSubmit={handleLogin} className="mt-8 space-y-4">
+          <div className="space-y-1">
+            <div className="relative flex items-center">
+              <Mail className="absolute left-4 h-4 w-4 text-zinc-600" />
+              <input
+                type="email" required value={email} onChange={(e) => setEmail(e.target.value)}
+                className="w-full rounded-2xl border border-zinc-800 bg-zinc-950 py-3.5 pl-11 pr-4 text-sm text-white placeholder-zinc-700 outline-none transition focus:border-emerald-500/50 focus:ring-1 focus:ring-emerald-500/50"
+                placeholder="Email"
+              />
+            </div>
+          </div>
+          <div className="space-y-1">
+            <div className="relative flex items-center">
+              <Lock className="absolute left-4 h-4 w-4 text-zinc-600" />
+              <input
+                type="password" required value={password} onChange={(e) => setPassword(e.target.value)}
+                className="w-full rounded-2xl border border-zinc-800 bg-zinc-950 py-3.5 pl-11 pr-4 text-sm text-white placeholder-zinc-700 outline-none transition focus:border-emerald-500/50 focus:ring-1 focus:ring-emerald-500/50"
+                placeholder="Пароль"
+              />
+            </div>
+          </div>
+
+          <button
+            type="submit" disabled={loading}
+            className="group relative flex w-full items-center justify-center gap-2 rounded-2xl bg-emerald-500 py-4 text-sm font-bold text-zinc-950 shadow-lg shadow-emerald-500/10 transition hover:bg-emerald-400 disabled:opacity-50"
+          >
+            {loading ? (
+              <div className="h-5 w-5 animate-spin rounded-full border-2 border-zinc-900 border-t-transparent" />
+            ) : (
+              <>
+                ВХОД
+                <LogIn className="h-4 w-4 transition-transform group-hover:translate-x-1" />
+              </>
+            )}
+          </button>
+        </form>
+
+        <div className="text-center text-sm text-zinc-400">
+          Нет аккаунта?{" "}
+          <button
+            type="button" onClick={() => router.push('/register')}
+            className="font-medium text-emerald-400 hover:text-emerald-300 transition"
+          >
+            Зарегистрироваться
+          </button>
+        </div>
+
+        <p className="text-center text-xs text-zinc-600">
+          Проблемы с доступом? Свяжитесь со своим тренером.
+        </p>
+      </motion.div>
+    </div>
+  );
+}
+
+=== FILE: app/trainer/clients/[id]/page.tsx ===
+"use client";
+
+import React, { useState, useEffect } from "react";
+import { useParams, useRouter } from "next/navigation";
+import { ArrowLeft, Trash2, Activity } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
+import toast, { Toaster } from "react-hot-toast";
+import { ensureDbReady } from "@/db/dexie";
+import { WorkoutBlock, Workout } from "@/db/types";
+
+export default function TrainerClientWorkoutConfig() {
+  const params = useParams();
+  const router = useRouter();
+  const clientId = params?.id as string;
+
+  const [isLoading, setIsLoading] = useState(true);
+  const [blocks, setBlocks] = useState<WorkoutBlock[]>([]);
+  const [workoutTitle, setWorkoutTitle] = useState("ПЛАН ТРЕНИРОВКИ");
+  const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split("T")[0]);
+  const [activeWorkoutId, setActiveWorkoutId] = useState<string>("");
+
+  useEffect(() => {
+    setActiveWorkoutId(crypto.randomUUID());
+  }, []);
+
+  useEffect(() => {
+    if (!clientId) return;
+
+    async function fetchClientPlan() {
+      try {
+        const db = await ensureDbReady();
+        const workout = await db.workouts.where({ client_id: clientId, date: selectedDate }).first();
+        
+        if (workout) {
+          setActiveWorkoutId(workout.id);
+          setWorkoutTitle(workout.title || workout.name || "ПЛАН ТРЕНИРОВКИ");
+          const relatedBlocks = await db.workout_blocks.where("workout_id").equals(workout.id).toArray();
+          setBlocks(relatedBlocks.sort((a, b) => a.order - b.order));
+        } else {
+          setBlocks([]);
+        }
+      } catch (err) {
+        toast.error("ОШИБКА ЧТЕНИЯ БД");
+      } finally {
+        setIsLoading(false);
+      }
+    }
+
+    fetchClientPlan();
+  }, [clientId, selectedDate]);
+
+  const addBlock = () => {
+    const newBlock: WorkoutBlock = {
+      id: crypto.randomUUID(),
+      workout_id: activeWorkoutId,
+      name: "",
+      order: blocks.length,
+      exercises: [{
+        id: crypto.randomUUID(),
+        setNumber: 1,
+        sets: 1,
+        reps: 10,
+        weight: 0,
+        weight_kg: 0,
+        isBodyweight: false
+      }]
+    };
+    setBlocks([...blocks, newBlock]);
+  };
+
+  const removeBlock = (id: string) => {
+    setBlocks(blocks.filter((b) => b.id !== id).map((b, idx) => ({ ...b, order: idx })));
+  };
+
+  const updateBlockName = (id: string, name: string) => {
+    setBlocks(blocks.map((b) => (b.id === id ? { ...b, name } : b)));
+  };
+
+  const updateExerciseField = (blockId: string, field: "sets" | "reps" | "weight_kg", value: string) => {
+    const cleanValue = value === "" ? 0 : Number(value);
+    setBlocks((prevBlocks) =>
+      prevBlocks.map((b) => {
+        if (b.id !== blockId) return b;
+        return {
+          ...b,
+          exercises: b.exercises.map((ex, i) => {
+            if (i === 0) {
+              if (field === "weight_kg") return { ...ex, weight_kg: cleanValue, weight: cleanValue };
+              if (field === "sets") return { ...ex, sets: cleanValue, setNumber: cleanValue };
+              return { ...ex, [field]: cleanValue };
+            }
+            return ex;
+          })
+        };
+      })
+    );
+  };
+
+  const handleSavePlan = async () => {
+    if (blocks.length === 0) return toast.error("ДОБАВЬТЕ УПРАЖНЕНИЯ!");
+    
+    const loadingToast = toast.loading("СОХРАНЕНИЕ...");
+    try {
+      const db = await ensureDbReady();
+      const workoutRecord: Workout = {
+        id: activeWorkoutId,
+        trainer_id: "current_trainer_id", 
+        client_id: clientId,
+        date: selectedDate,
+        title: workoutTitle.trim(),
+        name: workoutTitle.trim(),
+        status: "active",
+        is_custom: false,
+        notes: null,
+        sync_status: "pending"
+      };
+
+      await db.transaction("rw", [db.workouts, db.workout_blocks], async () => {
+        await db.workouts.put(workoutRecord);
+        await db.workout_blocks.where("workout_id").equals(activeWorkoutId).delete();
+        for (const block of blocks) {
+          await db.workout_blocks.put(block);
+        }
+      });
+
+      toast.success("ПЛАН НАЗНАЧЕН!", { id: loadingToast });
+    } catch (err) {
+      toast.error("ОШИБКА СОХРАНЕНИЯ", { id: loadingToast });
+    }
+  };
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-[#0A0A0A] flex flex-col items-center justify-center space-y-4">
+        <Activity className="h-8 w-8 text-[#00E676] animate-spin" />
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-[#0A0A0A] text-[#E1E3E6] font-mono p-4 md:p-8 pb-32">
+      <Toaster />
+      <header className="max-w-xl mx-auto flex items-center justify-between border-b border-[#262626] pb-6 mb-8">
+        <button onClick={() => router.back()} className="text-[9px] uppercase tracking-widest text-[#989AA0] hover:text-white flex items-center gap-2">
+          <ArrowLeft className="h-3.5 w-3.5" /> НАЗАД
+        </button>
+        <button onClick={handleSavePlan} className="bg-[#00E676] text-black px-6 py-2 rounded-lg text-[9px] font-black uppercase tracking-widest hover:bg-white transition-all">
+          НАЗНАЧИТЬ ПЛАН
+        </button>
+      </header>
+
+      <main className="max-w-xl mx-auto space-y-6">
+        <div className="bg-[#141519] border border-[#262626] p-6 rounded-xl space-y-4">
+          <input type="text" value={workoutTitle} onChange={(e) => setWorkoutTitle(e.target.value)} className="bg-transparent w-full font-black text-sm uppercase tracking-widest outline-none" />
+          <input type="date" value={selectedDate} onChange={(e) => setSelectedDate(e.target.value)} className="bg-[#0A0A0A] border border-[#262626] rounded-lg p-3 text-[10px] w-full outline-none" />
+        </div>
+
+        <div className="space-y-3">
+          {blocks.map((block, index) => (
+            <motion.div key={block.id} className="bg-[#141519] border border-[#262626] p-5 rounded-xl space-y-4">
+              <div className="flex items-center gap-3">
+                <span className="text-[10px] font-black text-[#00E676] bg-[#0A0A0A] w-6 h-6 rounded flex items-center justify-center">{index + 1}</span>
+                <input type="text" value={block.name} onChange={(e) => updateBlockName(block.id, e.target.value)} placeholder="НАЗВАНИЕ УПРАЖНЕНИЯ" className="bg-transparent text-xs font-bold uppercase tracking-widest outline-none w-full" />
+                <button onClick={() => removeBlock(block.id)} className="text-[#333] hover:text-rose-500"><Trash2 className="h-4 w-4" /></button>
+              </div>
+
+              <div className="grid grid-cols-3 gap-3">
+                {["sets", "reps", "weight_kg"].map((field) => {
+                  const val = block.exercises[0][field as keyof typeof block.exercises[0]];
+                  const displayValue = typeof val === 'number' ? val : "";
+                  
+                  return (
+                    <div key={field} className="bg-[#0A0A0A] border border-[#262626] p-3 rounded-lg">
+                      <label className="text-[7px] font-bold uppercase text-[#989AA0] block mb-1">{field === "weight_kg" ? "ВЕС (КГ)" : field}</label>
+                      <input 
+                        type="number" 
+                        value={displayValue}
+                        onChange={(e: React.ChangeEvent<HTMLInputElement>) => updateExerciseField(block.id, field as any, e.target.value)} 
+                        className="bg-transparent w-full text-xs font-mono outline-none" 
+                      />
+                    </div>
+                  );
+                })}
+              </div>
+            </motion.div>
+          ))}
+        </div>
+
+        <button onClick={addBlock} className="w-full py-4 border border-dashed border-[#262626] rounded-xl text-[9px] font-bold uppercase tracking-widest text-[#989AA0] hover:text-white transition-all">
+          + ДОБАВИТЬ УПРАЖНЕНИЕ
+        </button>
+      </main>
+    </div>
+  );
+}
+
+=== FILE: app/trainer/clients/page.tsx ===
+"use client";
+
+import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
+import { useAuth } from "@/providers/AuthProvider";
+import { getSupabaseClient } from "@/lib/supabase/client";
+import { User, Search, Plus, ArrowRight, Dumbbell, Calendar, ShieldAlert } from "lucide-react";
+import toast from "react-hot-toast";
+
+// Наша дизайн-система
+import { Card, Button, Input } from "@/components/ui/myo";
+
+const supabase = getSupabaseClient();
+
+interface ClientProfile {
+  id: string;
+  full_name: string | null;
+  email?: string;
+  avatar_url?: string | null;
+}
+
+export default function TrainerClientsPage() {
+  const authContext = useAuth();
+  const user = authContext?.user;
+  const profile = authContext?.profile;
+  const loading = authContext?.loading;
+  const router = useRouter();
+
+  const [clients, setClients] = useState<ClientProfile[]>([]);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    // Ограничение доступа: только для тренеров
+    if (!loading && profile && profile.role !== "trainer") {
+      router.replace("/");
+    }
+  }, [profile, loading, router]);
+
+  useEffect(() => {
+    if (!user) return;
+    fetchClients();
+  }, [user]);
+
+  const fetchClients = async () => {
+    try {
+      setIsLoading(true);
+      const { data, error } = await supabase
+        .from("profiles")
+        .select("id, full_name, avatar_url")
+        .eq("role", "client")
+        .eq("trainer_id", user?.id);
+
+      if (error) throw error;
+      setClients(data || []);
+    } catch (err: any) {
+      toast.error(`ОШИБКА ЗАГРУЗКИ АТЛЕТОВ: ${err.message}`);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const filteredClients = clients.filter((c) =>
+    c.full_name?.toLowerCase().includes(searchQuery.toLowerCase())
+  );
+
+  if (loading || isLoading) {
+    return (
+      <div className="min-h-screen bg-[#0A0A0A] flex flex-col items-center justify-center space-y-3 font-mono">
+        <div className="h-4 w-4 border-2 border-[#00E676] border-t-transparent animate-spin" />
+        <p className="text-[#989AA0] text-[9px] tracking-widest uppercase">ЗАГРУЗКА БАЗЫ АТЛЕТОВ...</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-[#0A0A0A] text-[#E1E3E6] font-mono antialiased pb-12">
+      <main className="mx-auto max-w-xl px-4 py-8 space-y-6">
+        
+        {/* ХЕДЕР СЕКЦИИ */}
+        <div className="flex items-center justify-between border-b border-[#222328] pb-4">
+          <div>
+            <h1 className="text-xs font-black text-white tracking-widest uppercase">АККАУНТЫ АТЛЕТОВ</h1>
+            <p className="text-[8px] text-[#989AA0] uppercase tracking-wider mt-0.5">УПРАВЛЕНИЕ И МОНИТОРИНГ КОНТИНГЕНТА</p>
+          </div>
+          <Button variant="primary" className="!text-[8px] h-7 px-3" onClick={() => router.push("/")}>
+            <Plus className="w-3 h-3" /> ИНВАЙТ
+          </Button>
+        </div>
+
+        {/* ПАНЕЛЬ ПОИСКА */}
+        <div className="relative">
+          <Input 
+            placeholder="ПОИСК АТЛЕТА ПО ИМЕНИ / ID..." 
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="pl-8"
+          />
+          <Search className="absolute left-3 top-3.5 h-3.5 w-3.5 text-[#515359]" />
+        </div>
+
+        {/* СПИСОК КАРТОЧЕК */}
+        <div className="space-y-2">
+          {filteredClients.length === 0 ? (
+            <div className="border border-dashed border-[#222328] bg-[#141519]/20 rounded-xl p-8 text-center space-y-2">
+              <ShieldAlert className="h-5 w-5 text-zinc-600 mx-auto" />
+              <p className="text-[10px] text-[#989AA0] uppercase tracking-wider">АТЛЕТЫ НЕ ОБНАРУЖЕНЫ</p>
+            </div>
+          ) : (
+            filteredClients.map((client) => (
+              <Card key={client.id} className="p-0 overflow-hidden group hover:border-[#00E676]/40 transition-all cursor-pointer">
+                <div 
+                  className="p-3.5 flex items-center justify-between w-full h-full"
+                  onClick={() => router.push(`/trainer/clients/${client.id}`)}
+                >
+                  <div className="flex items-center space-x-3.5">
+                    {/* Иконка профиля */}
+                    <div className="w-8 h-8 rounded bg-[#0A0A0A] border border-[#222328] flex items-center justify-center text-zinc-500 text-xs font-bold group-hover:border-[#00E676]/30 transition-colors">
+                      <User className="h-4 w-4 text-[#515359] group-hover:text-[#00E676] transition-colors" />
+                    </div>
+                    <div>
+                      <h3 className="text-xs font-bold text-white uppercase tracking-wide transition-colors group-hover:text-[#00E676]">
+                        {client.full_name || "НЕИДЕНТИФИЦИРОВАН"}
+                      </h3>
+                      <div className="flex items-center space-x-2 mt-0.5 text-[8px] text-[#989AA0] font-bold uppercase tracking-wider">
+                        <span className="text-[#00E676]">● АКТИВЕН</span>
+                        <span className="text-zinc-700">•</span>
+                        <span>ID: {client.id.slice(0, 8)}</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center space-x-2">
+                    {/* Быстрые статусы */}
+                    <div className="flex space-x-1 opacity-60 group-hover:opacity-100 transition-opacity">
+                      <div className="p-1 bg-[#0A0A0A] border border-[#222328] rounded text-zinc-500">
+                        <Dumbbell className="w-2.5 h-2.5" />
+                      </div>
+                      <div className="p-1 bg-[#0A0A0A] border border-[#222328] rounded text-zinc-500">
+                        <Calendar className="w-2.5 h-2.5" />
+                      </div>
+                    </div>
+                    <ArrowRight className="h-3.5 w-3.5 text-zinc-600 group-hover:text-white group-hover:translate-x-0.5 transition-all" />
+                  </div>
+                </div>
+              </Card>
+            ))
+          )}
+        </div>
+
+      </main>
+    </div>
+  );
+}
+

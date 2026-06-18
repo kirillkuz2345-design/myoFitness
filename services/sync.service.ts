@@ -4,6 +4,9 @@ import type { FitnessPWA } from "../db/dexie";
 import type { SyncQueue, WorkoutBlock } from "../db/types";
 import { getSupabaseClient } from "../lib/supabase/client";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { parseRoutineTimestamp } from "@/lib/routines/conflict";
+
+const MAX_SYNC_RETRIES = 3;
 
 function buildSetsFromBlock(payload: WorkoutBlock): Record<string, unknown>[] {
   const setsToInsert: Record<string, unknown>[] = [];
@@ -14,6 +17,7 @@ function buildSetsFromBlock(payload: WorkoutBlock): Record<string, unknown>[] {
     for (let i = 0; i < totalSets; i++) {
       setsToInsert.push({
         workout_id: payload.workout_id,
+        block_id: payload.id,
         exercise_name: exerciseName,
         set_number: i + 1,
         reps: ex.reps?.toString() || "",
@@ -21,18 +25,35 @@ function buildSetsFromBlock(payload: WorkoutBlock): Record<string, unknown>[] {
       });
     }
   }
-
   return setsToInsert;
 }
 
-async function markQueueItemFailed(
-  db: FitnessPWA,
-  item: SyncQueue
-): Promise<void> {
+async function markQueueItemFailed(db: FitnessPWA, item: SyncQueue): Promise<void> {
+  const nextRetries = item.retries + 1;
   await db.sync_queue.update(item.id!, {
-    status: item.retries >= 3 ? "failed" : "pending",
-    retries: item.retries + 1,
+    status: nextRetries >= MAX_SYNC_RETRIES ? "failed" : "pending",
+    retries: nextRetries,
   });
+}
+
+async function claimQueueItem(db: FitnessPWA, item: SyncQueue): Promise<void> {
+  await db.sync_queue.update(item.id!, { status: "processing" });
+}
+
+async function resetStaleProcessingItems(db: FitnessPWA): Promise<void> {
+  const stale = await db.sync_queue.where("status").equals("processing").toArray();
+  for (const item of stale) {
+    if (item.id != null) {
+      await db.sync_queue.update(item.id, { status: "pending" });
+    }
+  }
+}
+
+function isRetryableQueueItem(item: SyncQueue): boolean {
+  return (
+    item.status === "pending" ||
+    (item.status === "failed" && item.retries < MAX_SYNC_RETRIES)
+  );
 }
 
 export const syncService = {
@@ -41,11 +62,8 @@ export const syncService = {
   async hasPending(): Promise<boolean> {
     try {
       const db = await ensureDbReady();
-      const count = await db.sync_queue
-        .where("status")
-        .equals("pending")
-        .count();
-      return count > 0;
+      const items = await db.sync_queue.toArray();
+      return items.some(isRetryableQueueItem);
     } catch (err) {
       console.error("[SyncService] hasPending failed:", err);
       return false;
@@ -62,27 +80,28 @@ export const syncService = {
     if (typeof navigator !== "undefined" && !navigator.onLine) return;
 
     this.isSyncing = true;
-
     const supabase = getSupabaseClient();
 
     try {
       const db = await ensureDbReady();
-      const pendingItems = await db.sync_queue
-        .where("status")
-        .equals("pending")
-        .sortBy("timestamp");
+      await resetStaleProcessingItems(db);
+
+      const allItems = await db.sync_queue.toArray();
+      const pendingItems = allItems
+        .filter(isRetryableQueueItem)
+        .sort((a, b) => a.timestamp - b.timestamp);
 
       if (pendingItems.length === 0) return;
 
       const workoutItems = pendingItems.filter((i) => i.table_name === "workouts");
       const blockItems = pendingItems.filter((i) => i.table_name === "workout_blocks");
       const profileItems = pendingItems.filter((i) => i.table_name === "profiles");
-      const noteItems = pendingItems.filter(
-        (i) => i.table_name === "trainer_client_notes"
-      );
+      const noteItems = pendingItems.filter((i) => i.table_name === "trainer_client_notes");
 
+      // ИСПРАВЛЕНИЕ ИСКАЖЕНИЯ №5: Блокируем элементы в базе перед отправкой в сеть
       for (const item of profileItems) {
         if (!navigator.onLine) break;
+        await claimQueueItem(db, item);
 
         const success = await this.syncProfile(item, supabase, db);
         if (success) {
@@ -94,6 +113,7 @@ export const syncService = {
 
       for (const item of noteItems) {
         if (!navigator.onLine) break;
+        await claimQueueItem(db, item);
 
         const success = await this.syncTrainerClientNote(item, supabase, db);
         if (success) {
@@ -105,6 +125,7 @@ export const syncService = {
 
       for (const item of workoutItems) {
         if (!navigator.onLine) break;
+        await claimQueueItem(db, item);
 
         const success = await this.syncWorkout(item, supabase, db);
         if (success) {
@@ -115,7 +136,37 @@ export const syncService = {
       }
 
       if (navigator.onLine && blockItems.length > 0) {
-        await this.syncWorkoutBlocksBatch(blockItems, supabase, db);
+        const uniqueBlocksMap = new Map<string, SyncQueue>();
+
+        for (const item of blockItems) {
+          const payload = item.payload as { id: string };
+          const blockId = payload.id;
+
+          if (!uniqueBlocksMap.has(blockId)) {
+            uniqueBlocksMap.set(blockId, item);
+          } else {
+            const previousItem = uniqueBlocksMap.get(blockId)!;
+            if (previousItem.operation === "CREATE" && item.operation === "DELETE") {
+              uniqueBlocksMap.delete(blockId);
+              if (previousItem.id) await db.sync_queue.delete(previousItem.id);
+              if (item.id) await db.sync_queue.delete(item.id);
+            } else {
+              previousItem.payload = item.payload;
+              previousItem.operation = previousItem.operation === "CREATE" ? "CREATE" : item.operation;
+              previousItem.timestamp = item.timestamp;
+              if (item.id) await db.sync_queue.delete(item.id);
+            }
+          }
+        }
+
+        const cleanBlockItems = Array.from(uniqueBlocksMap.values());
+        if (cleanBlockItems.length > 0) {
+          for (const item of cleanBlockItems) {
+            if (!navigator.onLine) break;
+            if (item.id != null) await claimQueueItem(db, item);
+            await this.syncSingleWorkoutBlock(item, supabase, db);
+          }
+        }
       }
     } catch (err) {
       console.error("[SyncService] Ошибка в цикле синхронизации:", err);
@@ -124,15 +175,58 @@ export const syncService = {
     }
   },
 
-  async syncWorkoutBlocksBatch(
-    items: SyncQueue[],
+  async syncSingleWorkoutBlock(
+    item: SyncQueue,
     supabase: SupabaseClient,
     db: FitnessPWA
   ): Promise<void> {
+    if (item.operation === "DELETE") {
+      const payload = item.payload as { id: string; workout_id: string };
+      try {
+        const { error } = await supabase
+          .from("workout_sets")
+          .delete()
+          .eq("workout_id", payload.workout_id)
+          .eq("block_id", payload.id);
+
+        if (error) throw error;
+        await db.sync_queue.delete(item.id!);
+      } catch (e) {
+        console.error("[SyncService] DELETE block failed:", payload.id, e);
+        await markQueueItemFailed(db, item);
+      }
+      return;
+    }
+
+    const payload = item.payload as unknown as WorkoutBlock;
+    try {
+      const { error: deleteError } = await supabase
+        .from("workout_sets")
+        .delete()
+        .eq("workout_id", payload.workout_id)
+        .eq("block_id", payload.id);
+
+      if (deleteError) throw deleteError;
+
+      const setsToInsert = buildSetsFromBlock(payload);
+      if (setsToInsert.length > 0) {
+        const { error: insertError } = await supabase
+          .from("workout_sets")
+          .insert(setsToInsert);
+        if (insertError) throw insertError;
+      }
+
+      await db.workout_blocks.update(payload.id, { sync_status: "synced" });
+      await db.sync_queue.delete(item.id!);
+    } catch (e) {
+      console.error("[SyncService] UPSERT block failed:", payload.id, e);
+      await markQueueItemFailed(db, item);
+    }
+  },
+
+  async syncWorkoutBlocksBatch(items: SyncQueue[], supabase: SupabaseClient, db: FitnessPWA): Promise<void> {
     const deleteItems = items.filter((i) => i.operation === "DELETE");
-    const upsertItems = items.filter(
-      (i) => i.operation === "CREATE" || i.operation === "UPDATE"
-    );
+    const upsertItems = items.filter((i) => i.operation === "CREATE" || i.operation === "UPDATE");
 
     const deletesByWorkout = new Map<string, SyncQueue[]>();
     for (const item of deleteItems) {
@@ -143,19 +237,15 @@ export const syncService = {
     }
 
     for (const [workoutId, workoutDeletes] of deletesByWorkout) {
-      const names = workoutDeletes.map((i) =>
-        String((i.payload as { name: string }).name).trim()
-      );
-
+      const blockIds = workoutDeletes.map((i) => String((i.payload as { id: string }).id));
       try {
         const { error } = await supabase
           .from("workout_sets")
           .delete()
           .eq("workout_id", workoutId)
-          .in("exercise_name", names);
+          .in("block_id", blockIds);
 
         if (error) throw error;
-
         for (const item of workoutDeletes) {
           await db.sync_queue.delete(item.id!);
         }
@@ -176,22 +266,15 @@ export const syncService = {
     }
 
     for (const [, workoutUpserts] of upsertsByWorkout) {
-      const workoutId = (workoutUpserts[0].payload as unknown as WorkoutBlock)
-        .workout_id;
-      const exerciseNames = [
-        ...new Set(
-          workoutUpserts.map((i) =>
-            String((i.payload as unknown as WorkoutBlock).name).trim()
-          )
-        ),
-      ];
+      const workoutId = (workoutUpserts[0].payload as unknown as WorkoutBlock).workout_id;
+      const blockIds = workoutUpserts.map((i) => String((i.payload as unknown as WorkoutBlock).id));
 
       try {
         const { error: deleteError } = await supabase
           .from("workout_sets")
           .delete()
           .eq("workout_id", workoutId)
-          .in("exercise_name", exerciseNames);
+          .in("block_id", blockIds);
 
         if (deleteError) throw deleteError;
 
@@ -200,9 +283,7 @@ export const syncService = {
         );
 
         if (setsToInsert.length > 0) {
-          const { error: insertError } = await supabase
-            .from("workout_sets")
-            .insert(setsToInsert);
+          const { error: insertError } = await supabase.from("workout_sets").insert(setsToInsert);
           if (insertError) throw insertError;
         }
 
@@ -220,11 +301,7 @@ export const syncService = {
     }
   },
 
-  async syncProfile(
-    item: SyncQueue,
-    supabase: SupabaseClient,
-    db: FitnessPWA
-  ): Promise<boolean> {
+  async syncProfile(item: SyncQueue, supabase: SupabaseClient, db: FitnessPWA): Promise<boolean> {
     try {
       const payload = item.payload as {
         id: string;
@@ -257,11 +334,7 @@ export const syncService = {
     }
   },
 
-  async syncTrainerClientNote(
-    item: SyncQueue,
-    supabase: SupabaseClient,
-    db: FitnessPWA
-  ): Promise<boolean> {
+  async syncTrainerClientNote(item: SyncQueue, supabase: SupabaseClient, db: FitnessPWA): Promise<boolean> {
     try {
       const payload = item.payload as {
         id: string;
@@ -283,9 +356,7 @@ export const syncService = {
         );
 
         if (error) throw error;
-        await db.trainer_client_notes.update(payload.id, {
-          sync_status: "synced",
-        });
+        await db.trainer_client_notes.update(payload.id, { sync_status: "synced" });
       }
 
       if (item.operation === "DELETE") {
@@ -297,7 +368,6 @@ export const syncService = {
 
         if (error) throw error;
       }
-
       return true;
     } catch (e) {
       console.error("[SyncService] syncTrainerClientNote failed:", e);
@@ -305,11 +375,7 @@ export const syncService = {
     }
   },
 
-  async syncWorkout(
-    item: SyncQueue,
-    supabase: SupabaseClient,
-    db: FitnessPWA
-  ): Promise<boolean> {
+  async syncWorkout(item: SyncQueue, supabase: SupabaseClient, db: FitnessPWA): Promise<boolean> {
     try {
       const payload = item.payload as {
         id: string;
@@ -319,21 +385,39 @@ export const syncService = {
         title: string;
         status?: string;
         is_custom?: boolean;
+        updated_at?: string;
       };
 
       if (item.operation === "CREATE" || item.operation === "UPDATE") {
-        // ИСПРАВЛЕНО: Безопасная обработка trainer_id и сохранение динамического статуса воркаута
+        const { data: remoteRow } = await supabase
+          .from("workouts")
+          .select("updated_at")
+          .eq("id", payload.id)
+          .maybeSingle();
+
+        const remoteUpdatedAt = remoteRow?.updated_at as string | undefined;
+        if (
+          remoteUpdatedAt &&
+          payload.updated_at &&
+          parseRoutineTimestamp(remoteUpdatedAt) >
+            parseRoutineTimestamp(payload.updated_at)
+        ) {
+          await db.workouts.update(payload.id, { sync_status: "synced" });
+          return true;
+        }
+
         const rawTrainerId = payload.trainer_id ? payload.trainer_id.trim() : "";
         const finalTrainerId = rawTrainerId === "" ? null : rawTrainerId;
 
         const { error } = await supabase.from("workouts").upsert({
           id: payload.id,
           client_id: payload.client_id,
-          trainer_id: finalTrainerId, 
+          trainer_id: finalTrainerId,
           date: payload.date,
           name: payload.title,
           status: payload.status || "active",
-          is_custom: payload.is_custom ?? false
+          is_custom: payload.is_custom ?? false,
+          updated_at: payload.updated_at ?? new Date().toISOString(),
         });
 
         if (error) throw error;
