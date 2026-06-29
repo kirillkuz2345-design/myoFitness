@@ -9,6 +9,7 @@ import { ensureDbReady } from "@/db/dexie";
 import { WorkoutBlock, Workout, WorkoutRoutine } from "@/db/types";
 import { useAuth } from "@/providers/AuthProvider";
 import { routineRepository } from "@/services/routine.repository";
+import { workoutService } from "@/db/services/workout.service";
 
 export default function TrainerClientWorkoutConfig() {
   const params = useParams();
@@ -21,7 +22,6 @@ export default function TrainerClientWorkoutConfig() {
   const [workoutTitle, setWorkoutTitle] = useState("ПЛАН ТРЕНИРОВКИ");
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split("T")[0]);
   
-  // ФИКС КАСКАДНОГО RENDER: Используем ленивую инициализацию стейта вместо useEffect
   const [activeWorkoutId, setActiveWorkoutId] = useState<string>(() => crypto.randomUUID());
 
   useEffect(() => {
@@ -104,7 +104,6 @@ export default function TrainerClientWorkoutConfig() {
 
     const loadingToast = toast.loading("СОХРАНЕНИЕ...");
     try {
-      const db = await ensureDbReady();
       const workoutRecord: Workout = {
         id: activeWorkoutId,
         trainer_id: user.id,
@@ -116,15 +115,11 @@ export default function TrainerClientWorkoutConfig() {
         is_custom: false,
         notes: null,
         sync_status: "pending",
+        updated_at: new Date().toISOString()
       };
 
-      await db.transaction("rw", [db.workouts, db.workout_blocks], async () => {
-        await db.workouts.put(workoutRecord);
-        await db.workout_blocks.where("workout_id").equals(activeWorkoutId).delete();
-        for (const block of blocks) {
-          await db.workout_blocks.put(block);
-        }
-      });
+      // Использование защищенного workoutService с Conflict Resolution
+      await workoutService.saveWorkoutWithBlocks(workoutRecord, blocks);
 
       const routine: WorkoutRoutine = {
         id: activeWorkoutId,
@@ -140,7 +135,11 @@ export default function TrainerClientWorkoutConfig() {
       };
 
       if (navigator.onLine) {
-        await routineRepository.saveWorkoutRoutine(routine);
+        try {
+          await routineRepository.saveWorkoutRoutine(routine);
+        } catch (apiErr) {
+          console.warn("Бэкенд недоступен, изменения сохранены локально в очереди синка", apiErr);
+        }
       }
 
       toast.success("ПЛАН НАЗНАЧЕН!", { id: loadingToast });
@@ -196,7 +195,6 @@ export default function TrainerClientWorkoutConfig() {
                       <input 
                         type="number" 
                         value={displayValue}
-                        // ФИКС ТИПА ANY: Убрано приведение field as any
                         onChange={(e: React.ChangeEvent<HTMLInputElement>) => updateExerciseField(block.id, field, e.target.value)} 
                         className="bg-transparent w-full text-xs font-mono outline-none" 
                       />

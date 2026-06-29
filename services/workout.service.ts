@@ -1,19 +1,57 @@
-// services/workout.service.ts
-import { ensureDbReady } from "../db/dexie";
-import type { Workout, WorkoutBlock, SyncQueue } from "../db/types";
-import {
-  parseRoutineTimestamp,
-  stampRoutine,
-} from "@/lib/routines/conflict";
-import type { WorkoutRoutine } from "@/db/types";
+import { Dexie } from "dexie";
 
+interface Workout {
+  id: string;
+  client_id: string;
+  trainer_id?: string | null;
+  date: string;
+  updated_at?: string;
+  sync_status?: "synced" | "pending" | "failed";
+  [key: string]: any;
+}
+
+interface WorkoutBlock {
+  id: string;
+  workout_id: string;
+  order: number;
+  updated_at?: string;
+  sync_status?: "synced" | "pending" | "failed";
+  [key: string]: any;
+}
+
+interface SyncQueue {
+  id?: number;
+  table_name: "workouts" | "workout_blocks" | "exercise_sets" | "profiles" | "chat_messages";
+  operation: "CREATE" | "UPDATE" | "DELETE";
+  payload: Record<string, unknown>;
+  timestamp: number;
+  status: "pending" | "failed" | "synced";
+  retries: number;
+}
+
+class MyoFitnessDatabase extends Dexie {
+  workouts!: Dexie.Table<Workout, string>;
+  workout_blocks!: Dexie.Table<WorkoutBlock, string>;
+  sync_queue!: Dexie.Table<SyncQueue, number>;
+
+  constructor() {
+    super("MyoFitnessDB");
+    this.version(1).stores({
+      workouts: "id, client_id, date, [client_id+date]",
+      workout_blocks: "id, workout_id, order",
+      sync_queue: "++id, status, timestamp"
+    });
+  }
+}
+
+const localDb = new MyoFitnessDatabase();
 type QueuePayload = Record<string, unknown>;
 
 function buildQueueItem(
   table_name: SyncQueue["table_name"],
   operation: SyncQueue["operation"],
   payload: QueuePayload
-): Omit<SyncQueue, "id"> {
+): SyncQueue {
   return {
     table_name,
     operation,
@@ -24,99 +62,77 @@ function buildQueueItem(
   };
 }
 
-function workoutToRoutine(workout: Workout, blocks: WorkoutBlock[]): WorkoutRoutine {
-  return {
-    id: workout.id,
-    client_id: workout.client_id,
-    trainer_id: workout.trainer_id,
-    date: workout.date,
-    title: workout.title || workout.name,
-    blocks,
-    recommendations: "",
-    isPendingSync: workout.sync_status === "pending",
-    status: workout.status,
-    is_custom: workout.is_custom,
-    updated_at: workout.updated_at,
-  };
-}
-
 export const workoutService = {
   async saveWorkoutWithBlocks(
     workout: Workout,
     blocks: WorkoutBlock[]
   ): Promise<void> {
-    const db = await ensureDbReady();
-    const now = new Date().toISOString();
-
-    await db.transaction(
+    await localDb.transaction(
       "rw",
-      [db.workouts, db.workout_blocks, db.sync_queue],
+      [localDb.workouts, localDb.workout_blocks, localDb.sync_queue],
       async () => {
-        const existingWorkout = await db.workouts.get(workout.id);
-        const workoutOp: SyncQueue["operation"] = existingWorkout
-          ? "UPDATE"
-          : "CREATE";
+        const nowIso = new Date().toISOString();
+        const existingWorkout = await localDb.workouts.get(workout.id);
+        
+        if (
+          existingWorkout && 
+          existingWorkout.updated_at && 
+          workout.updated_at && 
+          new Date(existingWorkout.updated_at) > new Date(workout.updated_at)
+        ) {
+          console.warn(`[Conflict] Workout ${workout.id} is outdated.`);
+          return;
+        }
 
-        const workoutRecord: Workout = {
-          ...workout,
-          notes: workout.notes || null,
-          sync_status: "pending",
-          updated_at: now,
+        const workoutOp: SyncQueue["operation"] = existingWorkout ? "UPDATE" : "CREATE";
+        const workoutRecord: Workout = { 
+          ...workout, 
+          updated_at: nowIso,
+          sync_status: "pending" 
         };
-        await db.workouts.put(workoutRecord);
+        
+        await localDb.workouts.put(workoutRecord);
 
-        const queuePayload = {
-          ...workoutRecord,
-          title: workoutRecord.title || workoutRecord.name,
-        };
-
-        await db.sync_queue.add(
-          buildQueueItem(
-            "workouts",
-            workoutOp,
-            queuePayload as unknown as QueuePayload
-          )
+        await localDb.sync_queue.add(
+          buildQueueItem("workouts", workoutOp, workoutRecord as unknown as QueuePayload)
         );
 
-        const existingBlocks = await db.workout_blocks
+        const existingBlocks = await localDb.workout_blocks
           .where("workout_id")
           .equals(workout.id)
           .toArray();
 
-        const existingBlockIds = new Set(existingBlocks.map((b) => b.id));
-        const incomingBlockIds = new Set(blocks.map((b) => b.id));
+        const existingBlockIds = new Set(existingBlocks.map((b: any) => b.id)); 
+        const incomingBlockIds = new Set(blocks.map((b: any) => b.id));
 
-        await db.workout_blocks.where("workout_id").equals(workout.id).delete();
+        await localDb.workout_blocks
+          .where("workout_id")
+          .equals(workout.id)
+          .delete();
 
         const normalizedBlocks: WorkoutBlock[] = blocks.map((block, idx) => ({
           ...block,
           workout_id: workout.id,
           order: idx,
+          updated_at: nowIso,
           sync_status: "pending" as const,
         }));
 
-        if (normalizedBlocks.length > 0) {
-          await db.workout_blocks.bulkAdd(normalizedBlocks);
-        }
+        await localDb.workout_blocks.bulkAdd(normalizedBlocks);
 
         for (const block of normalizedBlocks) {
-          const blockOp: SyncQueue["operation"] = existingBlockIds.has(block.id)
-            ? "UPDATE"
-            : "CREATE";
-          await db.sync_queue.add(
+          const blockOp: SyncQueue["operation"] = existingBlockIds.has(block.id) ? "UPDATE" : "CREATE";
+          await localDb.sync_queue.add(
             buildQueueItem("workout_blocks", blockOp, block as unknown as QueuePayload)
           );
         }
 
-        const removedBlocks = existingBlocks.filter(
-          (b) => !incomingBlockIds.has(b.id)
-        );
+        const removedBlocks = existingBlocks.filter((b: any) => !incomingBlockIds.has(b.id));
         for (const block of removedBlocks) {
-          await db.sync_queue.add(
+          await localDb.sync_queue.add(
             buildQueueItem("workout_blocks", "DELETE", {
               id: block.id,
-              workout_id: block.workout_id,
-              name: block.name,
+              workout_id: workout.id,
             } as unknown as QueuePayload)
           );
         }
@@ -124,40 +140,15 @@ export const workoutService = {
     );
   },
 
-  shouldSyncWorkout(
-    local: WorkoutRoutine,
-    remoteUpdatedAt?: string | null
-  ): boolean {
-    if (!remoteUpdatedAt) return true;
-    const localTs = parseRoutineTimestamp(local.updated_at);
-    const remoteTs = parseRoutineTimestamp(remoteUpdatedAt);
-    return localTs >= remoteTs;
-  },
-
-  stampWorkout(workout: Workout): Workout {
-    const routine = stampRoutine(
-      workoutToRoutine(workout, [])
-    );
-    return {
-      ...workout,
-      updated_at: routine.updated_at,
-    };
-  },
-
-  async getWorkoutWithBlocks(
-    clientId: string,
-    date: string
-  ): Promise<{ workout: Workout; blocks: WorkoutBlock[] } | null> {
-    const db = await ensureDbReady();
-
-    const workout = await db.workouts
-      .where("[client_id+date]")
+  async getWorkoutWithBlocks(clientId: string, date: string) {
+    const workout = await localDb.workouts
+      .where("[client_id+date]" as any)
       .equals([clientId, date])
       .first();
 
     if (!workout) return null;
 
-    const blocks = await db.workout_blocks
+    const blocks = await localDb.workout_blocks
       .where("workout_id")
       .equals(workout.id)
       .sortBy("order");
@@ -165,18 +156,13 @@ export const workoutService = {
     return { workout, blocks };
   },
 
-  async getClientWorkoutsForMonth(
-    clientId: string,
-    year: number,
-    month: number
-  ) {
-    const db = await ensureDbReady();
+  async getClientWorkoutsForMonth(clientId: string, year: number, month: number) {
     const startStr = `${year}-${String(month).padStart(2, "0")}-01`;
     const endStr = `${year}-${String(month).padStart(2, "0")}-31`;
 
-    return db.workouts
-      .where("[client_id+date]")
+    return await localDb.workouts
+      .where("[client_id+date]" as any)
       .between([clientId, startStr], [clientId, endStr], true, true)
       .toArray();
-  },
+  }
 };
