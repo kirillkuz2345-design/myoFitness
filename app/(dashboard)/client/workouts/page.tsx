@@ -1,191 +1,221 @@
+// app/(dashboard)/client/workouts/page.tsx
 "use client";
 
-import React, { useState, useEffect, useCallback, useMemo } from "react";
-import PremiumWorkoutBuilder from "./PremiumWorkoutBuilder";
-import InteractivePlanner from "./InteractivePlanner";
-import ContextChatEngine from "@/app/chat/[id]/ContextChatEngine";
-import { WorkoutRoutine } from "@/db/types";
-import { Card } from "@/components/ui/myo";
+import React, { useState, useEffect } from "react";
+import { Card, Button, Input } from "@/components/ui/myo";
 import { useAuth } from "@/providers/AuthProvider";
-import { useWorkoutRoutines } from "@/hooks/useWorkoutRoutines";
-import { useRoutineRealtime } from "@/hooks/useRoutineRealtime";
-import { SyncStatusBadge } from "@/components/SyncStatusBadge";
-import { WorkoutSyncLine } from "@/components/WorkoutSyncLine";
+import { Dumbbell, Calendar, Plus, Trash2 } from "lucide-react";
+
+interface ExerciseSet {
+  id: string;
+  reps: string;
+  weight: string;
+}
+
+interface WorkoutBlock {
+  id: string;
+  name: string;
+  sets: ExerciseSet[];
+}
 
 export default function MyoPlannerDashboard() {
-  const { user, profile } = useAuth();
-  const userId = user?.id;
+  const { user, profile, loading } = useAuth();
+  const [workoutTitle, setWorkoutTitle] = useState("Моя силовая тренировка");
+  const [blocks, setBlocks] = useState<WorkoutBlock[]>([]);
+  const [selectedDate, setSelectedDate] = useState(() => new Date().toISOString().split("T")[0]);
 
-  const {
-    routines,
-    hydrated,
-    syncStatus,
-    persistRoutine,
-    setRoutines,
-  } = useWorkoutRoutines(userId);
-
-  const [activeRoutine, setActiveRoutine] = useState<WorkoutRoutine | null>(null);
-  const [online, setOnline] = useState(
-    typeof navigator !== "undefined" ? navigator.onLine : true
-  );
-
-  useRoutineRealtime({
-    clientId: userId,
-    setRoutines,
-    setActiveRoutine,
-  });
-
-  useEffect(() => {
-    const onStatus = () => setOnline(navigator.onLine);
-    window.addEventListener("online", onStatus);
-    window.addEventListener("offline", onStatus);
-    return () => {
-      window.removeEventListener("online", onStatus);
-      window.removeEventListener("offline", onStatus);
+  const addBlock = () => {
+    const newBlock: WorkoutBlock = {
+      id: crypto.randomUUID(),
+      name: "",
+      sets: [{ id: crypto.randomUUID(), reps: "", weight: "" }],
     };
-  }, []);
+    setBlocks((prev) => [...prev, newBlock]);
+  };
 
-  const handlePersistWorkout = useCallback(
-    (updatedRoutine: WorkoutRoutine) => {
-      const withMeta: WorkoutRoutine = {
-        ...updatedRoutine,
-        client_id: updatedRoutine.client_id || userId || "",
-        trainer_id: updatedRoutine.trainer_id ?? profile?.trainer_id ?? null,
-        isPendingSync: !navigator.onLine,
-      };
-      persistRoutine(withMeta);
-      setActiveRoutine(withMeta);
-    },
-    [userId, profile?.trainer_id, persistRoutine]
-  );
+  const removeBlock = (id: string) => {
+    setBlocks((prev) => prev.filter((b) => b.id !== id));
+  };
 
-  const handleDuplicatePlannerRoutine = useCallback(
-    (targetDate: string, clonedRoutine: WorkoutRoutine) => {
-      const duplicate: WorkoutRoutine = {
-        ...clonedRoutine,
-        id: crypto.randomUUID(),
-        date: targetDate,
-        client_id: clonedRoutine.client_id || userId || "",
-        trainer_id: clonedRoutine.trainer_id ?? profile?.trainer_id ?? null,
-        isPendingSync: !navigator.onLine,
-      };
-      persistRoutine(duplicate);
-      setActiveRoutine(duplicate);
-    },
-    [userId, profile?.trainer_id, persistRoutine]
-  );
+  const updateBlockName = (id: string, name: string) => {
+    setBlocks((prev) => prev.map((b) => (b.id === id ? { ...b, name } : b)));
+  };
 
-  const handleNavigateToDateContext = useCallback(
-    (dateObj: Date) => {
-      const tzOffset = dateObj.getTimezoneOffset() * 60000;
-      const localISOTime = new Date(dateObj.getTime() - tzOffset);
-      const dateStr = localISOTime.toISOString().split("T")[0];
+  const addSet = (blockId: string) => {
+    setBlocks((prev) =>
+      prev.map((b) => {
+        if (b.id !== blockId) return b;
+        return {
+          ...b,
+          sets: [...b.sets, { id: crypto.randomUUID(), reps: "", weight: "" }],
+        };
+      })
+    );
+  };
 
-      const routine = routines.find((r) => r.date === dateStr);
-      if (routine) {
-        setActiveRoutine(routine);
-      } else {
-        setActiveRoutine({
-          id: crypto.randomUUID(),
-          client_id: userId || "",
-          trainer_id: profile?.trainer_id ?? null,
-          date: dateStr,
-          title: "",
-          blocks: [],
-          recommendations: "",
-          isPendingSync: false,
-        });
-      }
-    },
-    [routines, userId, profile?.trainer_id]
-  );
+  const removeSet = (blockId: string, setId: string) => {
+    setBlocks((prev) =>
+      prev.map((b) => {
+        if (b.id !== blockId) return b;
+        if (b.sets.length === 1) return b;
+        return { ...b, sets: b.sets.filter((s) => s.id !== setId) };
+      })
+    );
+  };
 
-  const builderKey = activeRoutine
-    ? `routine-${activeRoutine.date}`
-    : "routine-empty";
+  const updateSetData = (
+    blockId: string,
+    setId: string,
+    field: "reps" | "weight",
+    value: string
+  ) => {
+    setBlocks((prev) =>
+      prev.map((b) => {
+        if (b.id !== blockId) return b;
+        return {
+          ...b,
+          sets: b.sets.map((s) => (s.id === setId ? { ...s, [field]: value } : s)),
+        };
+      })
+    );
+  };
 
-  const chatContextKey = activeRoutine?.date ?? "chat-empty";
-
-  const resolvedActiveRoutine = useMemo(() => {
-    if (!activeRoutine?.date) return activeRoutine;
-    return routines.find((r) => r.date === activeRoutine.date) ?? activeRoutine;
-  }, [activeRoutine, routines]);
-
-  if (!hydrated) {
+  if (loading) {
     return (
-      <div className="min-h-screen bg-[#0A0A0A] flex items-center justify-center">
-        <div className="w-2 h-2 rounded-full bg-[#00E676] animate-pulse" />
+      <div className="min-h-screen bg-[#0A0A0A] flex items-center justify-center font-mono">
+        <span className="text-xs text-zinc-500 uppercase tracking-widest animate-pulse">Загрузка консоли...</span>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-[#0A0A0A] text-[#E1E3E6] p-4 md:p-6 space-y-6 font-mono antialiased selection:bg-[#00E676] selection:text-black">
-      <Card className="max-w-7xl mx-auto flex justify-between items-center p-4 border border-[#222328]">
+    <div className="min-h-screen bg-[#0A0A0A] text-[#E1E3E6] font-mono antialiased space-y-6">
+      {/* Шапка рабочей области */}
+      <Card className="max-w-4xl mx-auto flex justify-between items-center p-4 border border-[#222328]">
         <div>
           <h1 className="text-sm font-black uppercase tracking-widest text-white">
             VIBEFITNESS <span className="text-[#00E676]">CORE</span>
           </h1>
-          <p className="text-[9px] font-bold text-[#989AA0] uppercase tracking-wider mt-0.5">
-            PREMIUM WORKSPACE v2.0
+          <p className="text-[8px] font-bold text-[#989AA0] uppercase tracking-wider mt-0.5">
+            Панель атлета: {profile?.full_name || user?.email}
           </p>
         </div>
-        <SyncStatusBadge online={online} syncStatus={syncStatus} />
       </Card>
 
-      <div className="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-12 gap-6">
-        <div className="lg:col-span-8 space-y-6">
-          <InteractivePlanner
-            routines={routines}
-            activeDate={activeRoutine?.date}
-            onDuplicateRoutine={handleDuplicatePlannerRoutine}
-            onSelectDate={handleNavigateToDateContext}
-          />
-
-          <div className="space-y-2">
-            <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-2 px-1">
-              <div>
-                <p className="text-[9px] font-bold text-[#515359] uppercase tracking-widest">
-                  АКТИВНАЯ СЕССИЯ
-                </p>
-                <p className="text-xs font-black text-white uppercase tracking-wider mt-0.5">
-                  {activeRoutine?.date ?? "ВЫБЕРИТЕ ДАТУ В СЕТКЕ"}
-                </p>
-              </div>
-              <div className="flex flex-col items-start sm:items-end gap-1">
-                <SyncStatusBadge online={online} syncStatus={syncStatus} />
-                <WorkoutSyncLine
-                  online={online}
-                  syncStatus={syncStatus}
-                  isPendingLocal={resolvedActiveRoutine?.isPendingSync}
-                />
-              </div>
+      <main className="max-w-4xl mx-auto grid grid-cols-1 md:grid-cols-3 gap-6">
+        {/* Левая колонка: Управление датой сессии */}
+        <div className="space-y-4">
+          <Card className="p-4 border border-[#222328] space-y-3">
+            <div className="flex items-center space-x-2">
+              <Calendar className="h-4 w-4 text-[#00E676]" />
+              <span className="text-[10px] font-black uppercase tracking-wider text-white">Выбор даты</span>
             </div>
-
-            <PremiumWorkoutBuilder
-              key={builderKey}
-              mode="client-log"
-              initialData={resolvedActiveRoutine}
-              clientId={userId}
-              trainerId={profile?.trainer_id ?? null}
-              onSave={handlePersistWorkout}
-            />
-          </div>
-        </div>
-
-        <div className="lg:col-span-4 w-full">
-          <Card className="p-1 border border-[#222328] bg-[#111214]/30 h-full min-h-[500px]">
-            <ContextChatEngine
-              key={chatContextKey}
-              currentUserRole="athlete"
-              activeRoutineContext={resolvedActiveRoutine}
-              onNavigateToWorkout={(dateStr: string) =>
-                handleNavigateToDateContext(new Date(dateStr))
-              }
+            <Input
+              type="date"
+              value={selectedDate}
+              onChange={(e) => setSelectedDate(e.target.value)}
+              className="text-xs font-mono"
             />
           </Card>
         </div>
-      </div>
+
+        {/* Правая колонка / Основная область: Конструктор логов тренировки */}
+        <div className="md:col-span-2 space-y-4">
+          <Card className="p-4 border border-[#222328] space-y-4">
+            <div>
+              <label className="text-[9px] font-bold text-[#989AA0] uppercase tracking-wider block mb-1.5">
+                Название тренировки
+              </label>
+              <Input
+                value={workoutTitle}
+                onChange={(e) => setWorkoutTitle(e.target.value)}
+                placeholder="Например: Силовая А, Ноги..."
+              />
+            </div>
+
+            {/* Вывод тренировочных блоков */}
+            <div className="space-y-4">
+              {blocks.length === 0 ? (
+                <p className="text-[9px] text-zinc-600 uppercase text-center py-6 font-bold">
+                  Упражнения не добавлены. Нажмите кнопку ниже.
+                </p>
+              ) : (
+                blocks.map((block, bIdx) => (
+                  <div key={block.id} className="bg-[#111214]/50 border border-[#222328] p-4 rounded-xl space-y-3">
+                    <div className="flex items-center justify-between border-b border-[#222328] pb-2">
+                      <div className="flex items-center gap-2 flex-1">
+                        <span className="text-[9px] font-black text-zinc-500">#{bIdx + 1}</span>
+                        <Input
+                          placeholder="Название упражнения..."
+                          value={block.name}
+                          onChange={(e) => updateBlockName(block.id, e.target.value)}
+                          className="h-8 !text-xs font-bold bg-transparent border-none p-0 focus:ring-0"
+                        />
+                      </div>
+                      <Button variant="danger" onClick={() => removeBlock(block.id)} className="h-7 px-2">
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </Button>
+                    </div>
+
+                    {/* Сеты упражнения */}
+                    <div className="space-y-2">
+                      {block.sets.map((set, sIdx) => (
+                        <div key={set.id} className="grid grid-cols-12 gap-2 items-center">
+                          <div className="col-span-2 text-center text-[10px] font-bold text-zinc-500 bg-[#0A0A0A] border border-[#222328] h-8 flex items-center justify-center rounded">
+                            {sIdx + 1}
+                          </div>
+                          <div className="col-span-4">
+                            <Input
+                              placeholder="Вес (кг)"
+                              value={set.weight}
+                              onChange={(e) => updateSetData(block.id, set.id, "weight", e.target.value)}
+                              className="h-8 text-center text-xs"
+                            />
+                          </div>
+                          <div className="col-span-4">
+                            <Input
+                              placeholder="Повторы"
+                              value={set.reps}
+                              onChange={(e) => updateSetData(block.id, set.id, "reps", e.target.value)}
+                              className="h-8 text-center text-xs"
+                            />
+                          </div>
+                          <div className="col-span-2 flex justify-center">
+                            <Button
+                              variant="secondary"
+                              onClick={() => removeSet(block.id, set.id)}
+                              disabled={block.sets.length === 1}
+                              className="h-8 w-full !p-0 text-zinc-600 hover:text-rose-500 disabled:opacity-30"
+                            >
+                              <Trash2 className="w-3 h-3" />
+                            </Button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+
+                    <Button
+                      variant="secondary"
+                      onClick={() => addSet(block.id)}
+                      className="h-6 text-[8px] border-dashed px-2 mt-1"
+                    >
+                      + Добавить сет
+                    </Button>
+                  </div>
+                ))
+              )}
+            </div>
+
+            <Button
+              variant="secondary"
+              onClick={addBlock}
+              className="w-full h-11 border-dashed border-[#222328] text-[10px] tracking-widest text-[#989AA0] hover:text-white transition-all bg-[#111214]/20"
+            >
+              <Dumbbell className="w-3.5 h-3.5 mr-1.5 text-zinc-600" /> Добавить упражнение
+            </Button>
+          </Card>
+        </div>
+      </main>
     </div>
   );
 }

@@ -1,227 +1,171 @@
 'use client';
 
-import { useState } from 'react';
-import { supabase } from '../../lib/supabase'; // Теперь этот файл физически существует!
-import { Plus, Trash2, Save, X } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { supabase } from '../../lib/supabase';
+import { Dumbbell, Calendar } from 'lucide-react';
 
-interface ClientExercise {
-  name: string;
-  sets: number;
-  reps: string;
-  weight: number;
-  client_note: string;
+interface WorkoutCard {
+  id: string;
+  title: string;
+  workout_date: string;
+  creator_id: string;
 }
 
-export default function WorkoutConstructor() {
-  const [isOpen, setIsOpen] = useState<boolean>(false);
-  const [title, setTitle] = useState<string>('');
-  const [exercises, setExercises] = useState<ClientExercise[]>([]);
-  const [loading, setLoading] = useState<boolean>(false);
-  const [message, setMessage] = useState<string>('');
+interface DaySchedule {
+  name: string;
+  shortName: string;
+  dateString: string;
+  isToday: boolean;
+  workouts: WorkoutCard[];
+}
 
-  const addExercise = () => {
-    setExercises([...exercises, { name: '', sets: 3, reps: '10', weight: 0, client_note: '' }]);
-  };
+export default function WeeklySchedule() {
+  const [weekDays, setWeekDays] = useState<DaySchedule[]>([]);
+  const [loading, setLoading] = useState<boolean>(true);
 
-  const removeExercise = (index: number) => {
-    setExercises(exercises.filter((_, i) => i !== index));
-  };
+  useEffect(() => {
+    async function fetchWeeklyWorkouts() {
+      try {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) return;
 
-  const handleExerciseChange = (index: number, field: keyof ClientExercise, value: any) => {
-    const updated = [...exercises];
-    updated[index] = { ...updated[index], [field]: value };
-    setExercises(updated);
-  };
+        // 1. Генерируем массив дат текущей недели (Пн - Вс)
+        const today = new Date();
+        const currentDayOfWeek = today.getDay(); // 0 = Вс, 1 = Пн, ..., 6 = Сб
+        
+        // Корректируем, чтобы неделя начиналась с Понедельника (в JS 0 — это Воскресенье)
+        const distanceToMonday = currentDayOfWeek === 0 ? -6 : 1 - currentDayOfWeek;
+        const monday = new Date(today);
+        monday.setDate(today.getDate() + distanceToMonday);
 
-  const handleSave = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!title || exercises.length === 0) {
-      setMessage('Укажите название и добавьте хотя бы одно упражнение.');
-      return;
+        const daysNames = [
+          { name: 'Понедельник', short: 'Пн' },
+          { name: 'Вторник', short: 'Вт' },
+          { name: 'Среда', short: 'Ср' },
+          { name: 'Четверг', short: 'Чт' },
+          { name: 'Пятница', short: 'Пт' },
+          { name: 'Суббота', short: 'Сб' },
+          { name: 'Воскресенье', short: 'Вс' },
+        ];
+
+        const generatedDays: DaySchedule[] = [];
+        const dateStrings: string[] = [];
+
+        for (let i = 0; i < 7; i++) {
+          const currentDay = new Date(monday);
+          currentDay.setDate(monday.getDate() + i);
+          
+          // Форматируем дату в YYYY-MM-DD для фильтрации в БД
+          const dateStr = currentDay.toISOString().split('T')[0];
+          dateStrings.push(dateStr);
+
+          // Проверяем, совпадает ли с сегодняшним числом (с учетом локального часового пояса)
+          const isToday = dateStr === today.toISOString().split('T')[0];
+
+          generatedDays.push({
+            name: daysNames[i].name,
+            shortName: daysNames[i].short,
+            dateString: dateStr,
+            isToday,
+            workouts: []
+          });
+        }
+
+        // 2. Делаем запрос в Supabase на тренировки в диапазоне текущей недели
+        // Благодаря нашему RLS, клиент вытянет только свои тренировки
+        const { data: workouts, error } = await supabase
+          .from('workouts')
+          .select('id, title, workout_date, creator_id')
+          .in('workout_date', dateStrings);
+
+        if (error) throw error;
+
+        // 3. Распределяем полученные тренировки по дням недели
+        if (workouts) {
+          workouts.forEach((workout: WorkoutCard) => {
+            const dayIndex = generatedDays.findIndex(d => d.dateString === workout.workout_date);
+            if (dayIndex !== -1) {
+              generatedDays[dayIndex].workouts.push(workout);
+            }
+          });
+        }
+
+        setWeekDays(generatedDays);
+      } catch (err) {
+        console.error('Ошибка при загрузке расписания на неделю:', err);
+      } finally {
+        setLoading(false);
+      }
     }
 
-    setLoading(true);
-    setMessage('');
+    fetchWeeklyWorkouts();
+  }, []);
 
-    try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error('Пользователь не авторизован');
-
-      const { data: workoutData, error: workoutError } = await supabase
-        .from('workouts')
-        .insert([
-          {
-            title,
-            workout_date: new Date().toISOString().split('T')[0],
-            client_id: user.id,
-            creator_id: user.id,
-          }
-        ])
-        .select()
-        .single();
-
-      if (workoutError) throw workoutError;
-
-      const exercisesToInsert = exercises.map(ex => ({
-        workout_id: workoutData.id,
-        name: ex.name,
-        sets: Number(ex.sets),
-        reps: ex.reps,
-        weight: ex.weight ? Number(ex.weight) : null,
-        client_note: ex.client_note,
-        trainer_comment: null
-      }));
-
-      const { error: exercisesError } = await supabase
-        .from('exercises')
-        .insert(exercisesToInsert);
-
-      if (exercisesError) throw exercisesError;
-
-      setMessage('Ваша тренировка успешно создана!');
-      setTitle('');
-      setExercises([]);
-      setTimeout(() => {
-        setIsOpen(false);
-        setMessage('');
-      }, 1500);
-
-    } catch (err: any) {
-      setMessage(`Ошибка сохранения: ${err.message}`);
-    } finally {
-      setLoading(false);
-    }
-  };
+  if (loading) {
+    return (
+      <div className="w-full bg-[#1A1A1A] border border-[#262626] rounded-xl p-6 text-center text-gray-400">
+        Загрузка расписания на неделю...
+      </div>
+    );
+  }
 
   return (
-    <div className="w-full text-white my-4">
-      {!isOpen ? (
-        <button
-          onClick={() => setIsOpen(true)}
-          className="text-[#00F5D4] hover:text-[#00D6B8] font-medium text-base transition-colors duration-200 bg-transparent border-none outline-none cursor-pointer flex items-center gap-1"
-        >
-          + Создать свою тренировку
-        </button>
-      ) : (
-        <div className="bg-[#1A1A1A] border border-[#262626] rounded-xl p-6 transition-all duration-300 relative">
-          <button
-            onClick={() => setIsOpen(false)}
-            className="absolute top-4 right-4 text-gray-500 hover:text-white transition-colors"
+    <div className="w-full bg-[#1A1A1A] border border-[#262626] rounded-xl p-6 text-white mb-6">
+      <h2 className="text-xl font-bold mb-6 flex items-center gap-2">
+        <Calendar className="w-5 h-5 text-[#00F5D4]" />
+        Расписание на неделю
+      </h2>
+
+      {/* Адаптивная календарная сетка: на мобилках в один столбец, на десктопе в 7 колонок */}
+      <div className="grid grid-cols-1 md:grid-cols-7 gap-4">
+        {weekDays.map((day) => (
+          <div 
+            key={day.dateString} 
+            className={`p-4 rounded-xl border flex flex-col min-h-[140px] transition-all duration-200 ${
+              day.isToday 
+                ? 'bg-[#0A0A0A] border-[#00F5D4] shadow-[0_0_15px_rgba(0,245,212,0.15)]' // Подсветка текущего дня по ТЗ
+                : 'bg-[#0A0A0A] border-[#262626] hover:border-gray-700'
+            }`}
           >
-            <X className="w-5 h-5" />
-          </button>
-
-          <h3 className="text-lg font-bold mb-4 text-[#00F5D4]">Новая тренировка</h3>
-
-          <form onSubmit={handleSave} className="space-y-4">
-            <div>
-              <label className="block text-xs font-medium text-gray-400 mb-1">Название тренировки *</label>
-              <input
-                type="text"
-                required
-                placeholder="Например: Моя утренняя кардио сессия"
-                value={title}
-                onChange={(e) => setTitle(e.target.value)}
-                className="w-full bg-[#0A0A0A] border border-[#262626] rounded-lg p-2.5 text-sm text-white focus:border-[#00F5D4] focus:outline-none transition-colors"
-              />
+            {/* Шапка дня */}
+            <div className="flex justify-between items-center mb-3">
+              <span className={`text-sm font-semibold ${day.isToday ? 'text-[#00F5D4]' : 'text-gray-300'}`}>
+                {day.name}
+              </span>
+              <span className="text-xs text-gray-500">
+                {day.shortName}
+              </span>
             </div>
 
-            <div className="space-y-4">
-              {exercises.map((exercise, index) => (
-                <div key={index} className="p-4 bg-[#0A0A0A] border border-[#262626] rounded-lg space-y-3 relative">
-                  <button
-                    type="button"
-                    onClick={() => removeExercise(index)}
-                    className="absolute top-4 right-4 text-gray-500 hover:text-red-400 transition-colors"
+            {/* Карточки тренировок внутри дня */}
+            <div className="flex-1 space-y-2">
+              {day.workouts.length > 0 ? (
+                day.workouts.map((workout) => (
+                  <div
+                    key={workout.id}
+                    onClick={() => window.location.href = `/client/workout/${workout.id}`} // Переход к выполнению тренировки по ТЗ
+                    className="p-2.5 bg-[#1A1A1A] border border-[#262626] rounded-lg hover:border-[#00F5D4] cursor-pointer transition-all duration-150 group flex flex-col justify-between"
                   >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
-
-                  <div className="grid grid-cols-1 md:grid-cols-4 gap-3 pr-6">
-                    <div className="md:col-span-2">
-                      <input
-                        type="text"
-                        required
-                        placeholder="Упражнение"
-                        value={exercise.name}
-                        onChange={(e) => handleExerciseChange(index, 'name', e.target.value)}
-                        className="w-full bg-[#1A1A1A] border border-[#262626] rounded-md p-2 text-xs text-white focus:border-[#00F5D4] focus:outline-none"
-                      />
-                    </div>
-                    <div className="flex gap-2">
-                      <input
-                        type="number"
-                        required
-                        placeholder="Сеты"
-                        value={exercise.sets || ''}
-                        onChange={(e) => handleExerciseChange(index, 'sets', e.target.value)}
-                        className="w-full bg-[#1A1A1A] border border-[#262626] rounded-md p-2 text-xs text-white focus:border-[#00F5D4] focus:outline-none"
-                      />
-                      <input
-                        type="text"
-                        required
-                        placeholder="Повторы"
-                        value={exercise.reps}
-                        onChange={(e) => handleExerciseChange(index, 'reps', e.target.value)}
-                        className="w-full bg-[#1A1A1A] border border-[#262626] rounded-md p-2 text-xs text-white focus:border-[#00F5D4] focus:outline-none"
-                      />
-                    </div>
-                    <div>
-                      <input
-                        type="number"
-                        placeholder="Вес (кг)"
-                        value={exercise.weight || ''}
-                        onChange={(e) => handleExerciseChange(index, 'weight', e.target.value)}
-                        className="w-full bg-[#1A1A1A] border border-[#262626] rounded-md p-2 text-xs text-white focus:border-[#00F5D4] focus:outline-none"
-                      />
+                    <span className="text-xs font-medium text-gray-200 group-hover:text-[#00F5D4] transition-colors line-clamp-2">
+                      {workout.title}
+                    </span>
+                    <div className="mt-1.5 flex items-center justify-between text-[10px] text-gray-500">
+                      <span className="flex items-center gap-0.5">
+                        <Dumbbell className="w-3 h-3" />
+                        {workout.creator_id === workout.id ? 'Кастомная' : 'От тренера'}
+                      </span>
                     </div>
                   </div>
-
-                  <div>
-                    <label className="block text-[11px] text-gray-400 mb-1">Заметка тренеру</label>
-                    <textarea
-                      placeholder="Например: Немного болело колено на 3-м подходе"
-                      value={exercise.client_note}
-                      onChange={(e) => handleExerciseChange(index, 'client_note', e.target.value)}
-                      rows={2}
-                      className="w-full bg-[#1A1A1A] border border-[#262626] rounded-md p-2 text-xs text-white focus:border-[#00F5D4] focus:outline-none resize-none"
-                    />
-                  </div>
-
-                  <div className="bg-[#141414] border border-dashed border-[#262626] rounded-md p-2 text-[11px] text-gray-500 select-none">
-                    <span className="font-semibold text-gray-400">Комментарий тренера:</span> Будет доступен после проверки наставником.
-                  </div>
+                ))
+              ) : (
+                <div className="h-full flex items-center justify-center text-[11px] text-gray-600 border border-dashed border-[#262626] rounded-lg py-4">
+                  Нет тренировок
                 </div>
-              ))}
+              )}
             </div>
-
-            <div className="flex gap-3 pt-2">
-              <button
-                type="button"
-                onClick={addExercise}
-                className="flex-1 py-2 bg-transparent border border-[#262626] hover:border-[#00F5D4] text-xs font-semibold rounded-lg transition-colors text-gray-300 hover:text-white"
-              >
-                + Добавить упражнение
-              </button>
-              
-              <button
-                type="submit"
-                disabled={loading || exercises.length === 0}
-                className="flex-1 py-2 bg-[#00F5D4] hover:bg-[#00D6B8] disabled:bg-gray-700 disabled:text-gray-400 text-black font-bold text-xs rounded-lg transition-colors flex items-center justify-center gap-1"
-              >
-                <Save className="w-3.5 h-3.5" />
-                {loading ? 'Сохранение...' : 'Сохранить тренировку'}
-              </button>
-            </div>
-
-            {message && (
-              <p className={`text-xs text-center mt-2 ${message.includes('Ошибка') || message.includes('Укажите') ? 'text-red-400' : 'text-[#00F5D4]'}`}>
-                {message}
-              </p>
-            )}
-          </form>
-        </div>
-      )}
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

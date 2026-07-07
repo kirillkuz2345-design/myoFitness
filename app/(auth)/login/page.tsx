@@ -1,8 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { getSupabaseClient } from "@/lib/supabase/client";
-const supabase = getSupabaseClient();
+import { supabase } from "@/lib/supabase"; // Исправлен импорт единого клиента
 import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import toast from "react-hot-toast";

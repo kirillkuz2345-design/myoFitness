@@ -1,215 +1,209 @@
-"use client";
+'use client';
 
-import React, { useState, useEffect } from "react";
-import { useParams, useRouter } from "next/navigation";
-import { ArrowLeft, Trash2, Activity } from "lucide-react";
-import { motion } from "framer-motion";
-import toast, { Toaster } from "react-hot-toast";
-import { ensureDbReady } from "@/db/dexie";
-import { WorkoutBlock, Workout, WorkoutRoutine } from "@/db/types";
-import { useAuth } from "@/providers/AuthProvider";
-import { routineRepository } from "@/services/routine.repository";
-import { workoutService } from "@/db/services/workout.service";
+import { useState, useEffect } from 'react';
+import { supabase } from '../../../../../lib/supabase'; // Исправлено: верный относительный путь на 5 уровней вверх
+import { ArrowLeft, Save } from 'lucide-react';
+import Link from 'next/link';
 
-export default function TrainerClientWorkoutConfig() {
-  const params = useParams();
-  const router = useRouter();
-  const { user } = useAuth();
-  const clientId = params?.id as string;
+interface Exercise {
+  id: string;
+  name: string;
+  sets: number;
+  reps: string;
+  weight: number | null;
+  client_note: string | null;
+  trainer_comment: string | null;
+}
 
-  const [isLoading, setIsLoading] = useState(true);
-  const [blocks, setBlocks] = useState<WorkoutBlock[]>([]);
-  const [workoutTitle, setWorkoutTitle] = useState("ПЛАН ТРЕНИРОВКИ");
-  const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split("T")[0]);
+interface Workout {
+  id: string;
+  title: string;
+  workout_date: string;
+}
+
+interface Props {
+  params: {
+    id: string;
+  };
+}
+
+export default function TrainerClientView({ params }: Props) {
+  const clientId = params.id;
   
-  const [activeWorkoutId, setActiveWorkoutId] = useState<string>(() => crypto.randomUUID());
+  const [workouts, setWorkouts] = useState<Workout[]>([]);
+  const [selectedWorkout, setSelectedWorkout] = useState<Workout | null>(null);
+  const [exercises, setExercises] = useState<Exercise[]>([]);
+  const [loading, setLoading] = useState<boolean>(true);
 
   useEffect(() => {
-    if (!clientId) return;
-
-    async function fetchClientPlan() {
+    async function loadClientWorkouts() {
       try {
-        const db = await ensureDbReady();
-        const workout = await db.workouts.where({ client_id: clientId, date: selectedDate }).first();
-        
-        if (workout) {
-          setActiveWorkoutId(workout.id);
-          setWorkoutTitle(workout.title || workout.name || "ПЛАН ТРЕНИРОВКИ");
-          const relatedBlocks = await db.workout_blocks.where("workout_id").equals(workout.id).toArray();
-          setBlocks(relatedBlocks.sort((a, b) => a.order - b.order));
-        } else {
-          setBlocks([]);
+        const { data, error } = await supabase
+          .from('workouts')
+          .select('id, title, workout_date')
+          .eq('client_id', clientId)
+          .order('workout_date', { ascending: false });
+
+        if (error) throw error;
+
+        if (data && data.length > 0) {
+          setWorkouts(data);
+          setSelectedWorkout(data[0]);
         }
       } catch (err) {
-        console.error("Ошибка чтения БД:", err);
-        toast.error("ОШИБКА ЧТЕНИЯ БД");
+        console.error('Ошибка загрузки тренировок:', err);
       } finally {
-        setIsLoading(false);
+        setLoading(false);
       }
     }
+    loadClientWorkouts();
+  }, [clientId]);
 
-    fetchClientPlan();
-  }, [clientId, selectedDate]);
+  useEffect(() => {
+    if (!selectedWorkout) return;
+    
+    let activeChannel: any = null;
+    const currentWorkoutId = selectedWorkout.id; // Кэшируем ID, гарантируя безопасность для TypeScript
 
-  const addBlock = () => {
-    const newBlock: WorkoutBlock = {
-      id: crypto.randomUUID(),
-      workout_id: activeWorkoutId,
-      name: "",
-      order: blocks.length,
-      exercises: [{
-        id: crypto.randomUUID(),
-        setNumber: 1,
-        sets: 1,
-        reps: 10,
-        weight: 0,
-        weight_kg: 0,
-        isBodyweight: false
-      }]
-    };
-    setBlocks([...blocks, newBlock]);
-  };
+    async function loadExercises() {
+      try {
+        const { data, error } = await supabase
+          .from('exercises')
+          .select('*')
+          .eq('workout_id', currentWorkoutId);
+        
+        if (error) throw error;
+        if (data) setExercises(data);
 
-  const removeBlock = (id: string) => {
-    setBlocks(blocks.filter((b) => b.id !== id).map((b, idx) => ({ ...b, order: idx })));
-  };
-
-  const updateBlockName = (id: string, name: string) => {
-    setBlocks(blocks.map((b) => (b.id === id ? { ...b, name } : b)));
-  };
-
-  const updateExerciseField = (blockId: string, field: "sets" | "reps" | "weight_kg", value: string) => {
-    const cleanValue = value === "" ? 0 : Number(value);
-    setBlocks((prevBlocks) =>
-      prevBlocks.map((b) => {
-        if (b.id !== blockId) return b;
-        return {
-          ...b,
-          exercises: b.exercises.map((ex, i) => {
-            if (i === 0) {
-              if (field === "weight_kg") return { ...ex, weight_kg: cleanValue, weight: cleanValue };
-              if (field === "sets") return { ...ex, sets: cleanValue, setNumber: cleanValue };
-              return { ...ex, [field]: cleanValue };
+        // Real-time подписка
+        activeChannel = supabase
+          .channel(`trainer-workout-realtime-${currentWorkoutId}`)
+          .on(
+            'postgres_changes',
+            {
+              event: 'UPDATE',
+              schema: 'public',
+              table: 'exercises',
+              filter: `workout_id=eq.${currentWorkoutId}`,
+            },
+            (payload: any) => {
+              if (payload.new) {
+                setExercises((prev) =>
+                  prev.map((ex) => (ex.id === payload.new.id ? (payload.new as Exercise) : ex))
+                );
+              }
             }
-            return ex;
-          })
-        };
-      })
-    );
-  };
+          )
+          .subscribe();
 
-  const handleSavePlan = async () => {
-    if (blocks.length === 0) return toast.error("ДОБАВЬТЕ УПРАЖНЕНИЯ!");
-    if (!user?.id) return toast.error("НЕТ АВТОРИЗАЦИИ ТРЕНЕРА");
-
-    const loadingToast = toast.loading("СОХРАНЕНИЕ...");
-    try {
-      const workoutRecord: Workout = {
-        id: activeWorkoutId,
-        trainer_id: user.id,
-        client_id: clientId,
-        date: selectedDate,
-        title: workoutTitle.trim(),
-        name: workoutTitle.trim(),
-        status: "active",
-        is_custom: false,
-        notes: null,
-        sync_status: "pending",
-        updated_at: new Date().toISOString()
-      };
-
-      // Использование защищенного workoutService с Conflict Resolution
-      await workoutService.saveWorkoutWithBlocks(workoutRecord, blocks);
-
-      const routine: WorkoutRoutine = {
-        id: activeWorkoutId,
-        client_id: clientId,
-        trainer_id: user.id,
-        date: selectedDate,
-        title: workoutTitle.trim(),
-        blocks,
-        recommendations: "",
-        isPendingSync: false,
-        status: "active",
-        is_custom: false,
-      };
-
-      if (navigator.onLine) {
-        try {
-          await routineRepository.saveWorkoutRoutine(routine);
-        } catch (apiErr) {
-          console.warn("Бэкенд недоступен, изменения сохранены локально в очереди синка", apiErr);
-        }
+      } catch (err) {
+        console.error('Ошибка загрузки упражнений:', err);
       }
-
-      toast.success("ПЛАН НАЗНАЧЕН!", { id: loadingToast });
-    } catch (err) {
-      console.error("Ошибка при сохранении:", err);
-      toast.error("ОШИБКА СОХРАНЕНИЯ", { id: loadingToast });
     }
+
+    loadExercises();
+
+    return () => {
+      if (activeChannel) {
+        supabase.removeChannel(activeChannel);
+      }
+    };
+  }, [selectedWorkout]);
+
+  const handleSaveComment = async (exerciseId: string, comment: string) => {
+    setExercises((prev) =>
+      prev.map((ex) => (ex.id === exerciseId ? { ...ex, trainer_comment: comment } : ex))
+    );
+
+    await supabase
+      .from('exercises')
+      .update({ trainer_comment: comment, updated_at: new Date().toISOString() })
+      .eq('id', exerciseId);
   };
 
-  if (isLoading) {
-    return (
-      <div className="min-h-screen bg-[#0A0A0A] flex flex-col items-center justify-center space-y-4">
-        <Activity className="h-8 w-8 text-[#00E676] animate-spin" />
-      </div>
-    );
-  }
+  if (loading) return <div className="text-center text-xs text-gray-500 py-10 font-mono bg-zinc-950 min-h-screen flex items-center justify-center">Синхронизация данных...</div>;
 
   return (
-    <div className="min-h-screen bg-[#0A0A0A] text-[#E1E3E6] font-mono p-4 md:p-8 pb-32">
-      <Toaster />
-      <header className="max-w-xl mx-auto flex items-center justify-between border-b border-[#262626] pb-6 mb-8">
-        <button type="button" onClick={() => router.back()} className="text-[9px] uppercase tracking-widest text-[#989AA0] hover:text-white flex items-center gap-2">
-          <ArrowLeft className="h-3.5 w-3.5" /> НАЗАД
-        </button>
-        <button type="button" onClick={handleSavePlan} className="bg-[#00E676] text-black px-6 py-2 rounded-lg text-[9px] font-black uppercase tracking-widest hover:bg-white transition-all">
-          НАЗНАЧИТЬ ПЛАН
-        </button>
-      </header>
+    <div className="w-full max-w-5xl mx-auto p-4 text-white font-mono space-y-6">
+      <Link href="/trainer" className="text-xs text-gray-400 hover:text-[#00F5D4] flex items-center gap-1 transition-colors">
+        <ArrowLeft className="w-3.5 h-3.5" /> Назад к списку атлетов
+      </Link>
 
-      <main className="max-w-xl mx-auto space-y-6">
-        <div className="bg-[#141519] border border-[#262626] p-6 rounded-xl space-y-4">
-          <input type="text" value={workoutTitle} onChange={(e) => setWorkoutTitle(e.target.value)} className="bg-transparent w-full font-black text-sm uppercase tracking-widest outline-none" />
-          <input type="date" value={selectedDate} onChange={(e) => setSelectedDate(e.target.value)} className="bg-[#0A0A0A] border border-[#262626] rounded-lg p-3 text-[10px] w-full outline-none" />
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        {/* История тренировок */}
+        <div className="bg-[#1A1A1A] border border-[#262626] rounded-xl p-4 space-y-2 h-fit">
+          <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">История тренировок</h3>
+          {workouts.length > 0 ? (
+            workouts.map((w) => (
+              <button
+                key={w.id}
+                onClick={() => setSelectedWorkout(w)}
+                className={`w-full text-left p-3 rounded-lg text-xs border transition-colors ${
+                  selectedWorkout?.id === w.id ? 'bg-[#0A0A0A] border-[#00F5D4]' : 'bg-[#0A0A0A]/40 border-[#262626] text-gray-400 hover:border-zinc-700'
+                }`}
+              >
+                <div className="font-bold text-gray-200">{w.title}</div>
+                <div className="text-[10px] text-gray-500 mt-1">{w.workout_date}</div>
+              </button>
+            ))
+          ) : (
+            <div className="text-[11px] text-zinc-600 p-2 italic">Нет назначенных комплексов</div>
+          )}
         </div>
 
-        <div className="space-y-3">
-          {blocks.map((block, index) => (
-            <motion.div key={block.id} className="bg-[#141519] border border-[#262626] p-5 rounded-xl space-y-4">
-              <div className="flex items-center gap-3">
-                <span className="text-[10px] font-black text-[#00E676] bg-[#0A0A0A] w-6 h-6 rounded flex items-center justify-center">{index + 1}</span>
-                <input type="text" value={block.name} onChange={(e) => updateBlockName(block.id, e.target.value)} placeholder="НАЗВАНИЕ УПРАЖНЕНИЯ" className="bg-transparent text-xs font-bold uppercase tracking-widest outline-none w-full" />
-                <button type="button" onClick={() => removeBlock(block.id)} className="text-[#333] hover:text-rose-500"><Trash2 className="h-4 w-4" /></button>
-              </div>
-
-              <div className="grid grid-cols-3 gap-3">
-                {(["sets", "reps", "weight_kg"] as const).map((field) => {
-                  const val = block.exercises[0][field];
-                  const displayValue = typeof val === 'number' ? val : "";
-                  
-                  return (
-                    <div key={field} className="bg-[#0A0A0A] border border-[#262626] p-3 rounded-lg">
-                      <label className="text-[7px] font-bold uppercase text-[#989AA0] block mb-1">{field === "weight_kg" ? "ВЕС (КГ)" : field}</label>
-                      <input 
-                        type="number" 
-                        value={displayValue}
-                        onChange={(e: React.ChangeEvent<HTMLInputElement>) => updateExerciseField(block.id, field, e.target.value)} 
-                        className="bg-transparent w-full text-xs font-mono outline-none" 
-                      />
+        {/* Разбор упражнений */}
+        <div className="md:col-span-2 bg-[#1A1A1A] border border-[#262626] rounded-xl p-6 space-y-4">
+          {selectedWorkout ? (
+            <>
+              <h2 className="text-xs font-bold text-[#00F5D4] uppercase tracking-wider flex items-center gap-2">
+                <span className="w-1.5 h-3 bg-[#00F5D4] rounded-full"></span>
+                Комплекс: {selectedWorkout.title}
+              </h2>
+              <div className="space-y-3">
+                {exercises.map((ex) => (
+                  <div key={ex.id} className="p-4 bg-[#0A0A0A] border border-[#262626] rounded-lg space-y-3">
+                    <div className="flex justify-between text-xs items-center">
+                      <span className="font-bold text-zinc-200">{ex.name}</span>
+                      <span className="text-gray-500 bg-[#1A1A1A] px-2 py-0.5 border border-zinc-800 rounded">
+                        {ex.sets}x{ex.reps} {ex.weight ? `(${ex.weight} кг)` : ''}
+                      </span>
                     </div>
-                  );
-                })}
-              </div>
-            </motion.div>
-          ))}
-        </div>
+                    
+                    <div className="bg-[#141414] p-2.5 border border-[#262626] rounded text-[11px] text-gray-400">
+                      <span className="text-gray-500 block mb-1 font-bold">Обратная связь атлета:</span>
+                      {ex.client_note ? (
+                        <span className="text-zinc-300 italic">«{ex.client_note}»</span>
+                      ) : (
+                        <span className="text-zinc-600 italic">Заметок от атлета пока нет</span>
+                      )}
+                    </div>
 
-        <button type="button" onClick={addBlock} className="w-full py-4 border border-dashed border-[#262626] rounded-xl text-[9px] font-bold uppercase tracking-widest text-[#989AA0] hover:text-white transition-all">
-          + ДОБАВИТЬ УПРАЖНЕНИЕ
-        </button>
-      </main>
+                    <div className="space-y-1">
+                      <label className="text-[10px] text-zinc-500">Ваш разбор / Корректировка техники:</label>
+                      <div className="flex gap-2">
+                        <input
+                          type="text"
+                          defaultValue={ex.trainer_comment || ''}
+                          onBlur={(e) => handleSaveComment(ex.id, e.target.value)}
+                          placeholder="Оставить отзыв или скорректировать технику..."
+                          className="flex-1 bg-[#1A1A1A] border border-[#262626] rounded p-2 text-xs text-white focus:outline-none focus:border-[#00F5D4] transition-colors"
+                        />
+                        <button className="p-2 bg-[#262626] rounded text-zinc-400 hover:text-white transition-colors">
+                          <Save className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </>
+          ) : (
+            <div className="text-center text-xs text-gray-600 py-10 border border-dashed border-[#262626] rounded-xl">
+              Нет выбранной тренировки.
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
