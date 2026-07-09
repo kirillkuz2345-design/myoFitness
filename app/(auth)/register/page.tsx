@@ -1,3 +1,4 @@
+// app/(auth)/register/page.tsx
 "use client";
 
 import React, { useState } from "react";
@@ -7,13 +8,13 @@ import { motion } from "framer-motion";
 import toast from "react-hot-toast";
 import { UserPlus, Mail, Lock, Zap, User, Dumbbell, ShieldCheck } from "lucide-react";
 
-type UserRole = "CLIENT" | "TRAINER";
+type UserRole = "client" | "trainer"; // ИСПРАВЛЕНО: роли в нижнем регистре для соответствия типам БД
 
 export default function RegisterPage() {
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [role, setRole] = useState<UserRole>("CLIENT");
+  const [role, setRole] = useState<UserRole>("client"); // ИСПРАВЛЕНО: дефолт в нижнем регистре
   const [loading, setLoading] = useState(false);
   const router = useRouter();
 
@@ -24,14 +25,14 @@ export default function RegisterPage() {
 
     const cleanEmail = email.trim().toLowerCase();
 
-    // Шаг 1: Регистрируем пользователя в Auth с минимальными метаданными
+    // Шаг 1: Регистрируем пользователя в Auth с метаданными в нижнем регистре
     const { data: authData, error: authError } = await supabase.auth.signUp({
       email: cleanEmail,
       password,
       options: {
         data: {
           full_name: fullName.trim(),
-          role: role,
+          role: role, // "client" или "trainer"
         },
       },
     });
@@ -42,7 +43,7 @@ export default function RegisterPage() {
       return;
     }
 
-    // Шаг 2: Если пользователь создался, принудительно и безопасно пишем профиль вручную
+    // Шаг 2: Безопасный upsert. Если триггер в БД уже сработал, upsert просто обновит поля без вызова deadlock
     if (authData?.user) {
       try {
         const { error: profileError } = await supabase
@@ -50,11 +51,15 @@ export default function RegisterPage() {
           .upsert({
             id: authData.user.id,
             full_name: fullName.trim(),
-            role: role,
-            updated_at: new Date().toISOString(),
-          }, { onConflict: 'id' }); // Предотвращает дублирование конфликтов базы
+            role: role, // Отправляем строго в нижнем регистре
+          }, { onConflict: 'id' });
 
-        // Если ручная вставка прошла успешно (или даже если триггер уже сработал частично)
+        if (profileError) {
+          // Если ручной upsert отклонён базой (например, из-за RLS полиси), 
+          // но юзер в Auth создан — мы всё равно даем ему пройти, так как триггер создаст профиль самостоятельно
+          console.warn("Профиль обрабатывается триггером базы:", profileError.message);
+        }
+
         toast.success("Регистрация успешна!", { id: loadingToast });
         setLoading(false);
         
@@ -63,8 +68,7 @@ export default function RegisterPage() {
         }, 200);
         
       } catch (profileErr) {
-        // Мягкий фоллбэк: если профиль упал из-за триггера, но юзер создан — всё равно пускаем
-        console.warn("Профиль создается триггером базы:", profileErr);
+        console.error("Фоллбэк регистрации:", profileErr);
         toast.success("Аккаунт создан!", { id: loadingToast });
         setLoading(false);
         setTimeout(() => {
@@ -104,9 +108,9 @@ export default function RegisterPage() {
           <div className="grid grid-cols-2 gap-3 p-1 bg-zinc-950 border border-zinc-900 rounded-2xl">
             <button
               type="button"
-              onClick={() => setRole("CLIENT")}
+              onClick={() => setRole("client")}
               className={`flex items-center justify-center gap-2 py-3 text-xs font-bold uppercase rounded-xl transition-all duration-200 ${
-                role === "CLIENT"
+                role === "client"
                   ? "bg-emerald-500 text-zinc-950 shadow-md shadow-emerald-500/10"
                   : "text-zinc-500 hover:text-zinc-300"
               }`}
@@ -116,9 +120,9 @@ export default function RegisterPage() {
             </button>
             <button
               type="button"
-              onClick={() => setRole("TRAINER")}
+              onClick={() => setRole("trainer")}
               className={`flex items-center justify-center gap-2 py-3 text-xs font-bold uppercase rounded-xl transition-all duration-200 ${
-                role === "TRAINER"
+                role === "trainer"
                   ? "bg-emerald-500 text-zinc-950 shadow-md shadow-emerald-500/10"
                   : "text-zinc-500 hover:text-zinc-300"
               }`}

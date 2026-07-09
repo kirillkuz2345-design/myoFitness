@@ -11,11 +11,11 @@ import {
 import type { User } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabase";
 
-// Временная безопасная типизация для исключения ошибок TS2307
+// Обновленная типизация: теперь TS понимает как строчные роли, так и капс из базы данных
 export type LocalProfile = {
   id: string;
   full_name: string | null;
-  role: "client" | "trainer";
+  role: "client" | "trainer" | "CLIENT" | "TRAINER";
   trainer_id?: string | null;
   avatar_url?: string | null;
   height?: number | null;
