@@ -2,11 +2,18 @@
 
 import React from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
+import { supabase } from "@/lib/supabase";
 import { Dumbbell, User, BarChart3, LayoutDashboard, LogOut } from "lucide-react";
 
 export default function Sidebar() {
   const pathname = usePathname();
+  const router = useRouter();
+
+  const handleSignOut = async () => {
+    await supabase.auth.signOut();
+    router.replace("/login");
+  };
 
   const navItems = [
     { name: "ТРЕНИРОВКИ", href: "/client/workouts", icon: Dumbbell },
@@ -53,7 +60,7 @@ export default function Sidebar() {
 
       {/* СИСТЕМНЫЙ ВЫХОД */}
       <div className="hidden md:block border-t border-[#222328] pt-4">
-        <div className="flex items-center justify-between px-2 text-[9px] font-bold text-[#515359] hover:text-red-400 transition-colors cursor-pointer uppercase">
+        <div onClick={handleSignOut} className="flex items-center justify-between px-2 text-[9px] font-bold text-[#515359] hover:text-red-400 transition-colors cursor-pointer uppercase">
           <span>ВЫЙТИ ИЗ СИСТЕМЫ</span>
           <LogOut className="h-3 w-3" />
         </div>
