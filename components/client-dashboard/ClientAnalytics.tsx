@@ -20,6 +20,8 @@ export default function ClientAnalytics() {
   const [newDate, setNewDate] = useState<string>(new Date().toISOString().split('T')[0]);
 
   const [loading, setLoading] = useState<boolean>(false);
+  // Инициализируем true — иначе setFetching(true) вызывался бы синхронно внутри
+  // эффекта (react-hooks/set-state-in-effect). Флаг гасится в finally после await.
   const [fetching, setFetching] = useState<boolean>(true);
 
   // Карта названий и единиц измерения
@@ -29,12 +31,12 @@ export default function ClientAnalytics() {
     waist: { label: 'Обхват талии', unit: 'см', color: '#FF007F' },
   };
 
-  // 1. Загрузка метрик из Supabase
-  const loadMetrics = async () => {
-    setFetching(true);
+  // 1. Загрузка метрик из Supabase — только возвращает данные, без setState,
+  // чтобы setState жил в callback эффекта (.then), как требует react-hooks/set-state-in-effect.
+  const loadMetrics = async (): Promise<MetricEntry[] | null> => {
     try {
       const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
+      if (!user) return null;
 
       const { data, error } = await supabase
         .from('client_metrics')
@@ -43,16 +45,25 @@ export default function ClientAnalytics() {
         .order('recorded_at', { ascending: true }); // Для правильного отображения на графике слева направо
 
       if (error) throw error;
-      if (data) setMetrics(data);
+      return data ?? [];
     } catch (err) {
       console.error('Ошибка загрузки метрик:', err);
-    } finally {
-      setFetching(false);
+      return null;
     }
   };
 
   useEffect(() => {
-    loadMetrics();
+    let cancelled = false;
+    // setState внутри callback — разрешённый правилом паттерн.
+    loadMetrics().then((data) => {
+      if (cancelled) return;
+      if (data) setMetrics(data);
+      setFetching(false);
+    });
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   // Фильтруем метрики для текущего активного таба
@@ -82,7 +93,8 @@ export default function ClientAnalytics() {
       if (error) throw error;
 
       setNewValue('');
-      await loadMetrics(); // Перезагружаем стейт
+      const fresh = await loadMetrics(); // Перезагружаем данные (вне эффекта — setState здесь допустим)
+      if (fresh) setMetrics(fresh);
     } catch (err) {
       console.error('Ошибка добавления метрики:', err);
     } finally {

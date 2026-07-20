@@ -3,9 +3,9 @@
 
 import React, { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
-import { useAuth } from "@/providers/AuthProvider"; 
+import { useAuth } from "@/providers/AuthProvider";
 import { supabase } from "@/lib/supabase";
-import { LogOut, Users, Search, Sliders, Dumbbell } from "lucide-react";
+import { LogOut, Users, Sliders } from "lucide-react";
 import { Card, Button, Input } from "@/components/ui/myo";
 
 interface ClientProfile {
@@ -22,24 +22,25 @@ export default function TrainerClientsListPage() {
 
   const [clients, setClients] = useState<ClientProfile[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
-  const [isClientsLoading, setIsClientsLoading] = useState(false);
+  // Инициализируем true, чтобы не вызывать setState синхронно внутри эффекта
+  // (react-hooks/set-state-in-effect). Флаг гасится в finally после await.
+  const [isClientsLoading, setIsClientsLoading] = useState(true);
 
-  // Функция загрузки атлетов, привязанных к конкретному тренеру
-  const fetchClients = useCallback(async (trainerId: string) => {
-    setIsClientsLoading(true);
+  // Функция загрузки атлетов: только возвращает данные, без setState —
+  // чтобы setState жил в callback эффекта (.then), как требует react-hooks/set-state-in-effect.
+  const fetchClients = useCallback(async (trainerId: string): Promise<ClientProfile[] | null> => {
     try {
       const { data, error } = await supabase
         .from("profiles")
         .select("id, full_name, avatar_url, height, weight")
         .eq("role", "client")
         .eq("trainer_id", trainerId);
-      
+
       if (error) throw error;
-      setClients(data || []);
+      return data || [];
     } catch (err) {
       console.error("Ошибка синхронизации списка атлетов:", err);
-    } finally {
-      setIsClientsLoading(false);
+      return null;
     }
   }, []);
 
@@ -49,9 +50,19 @@ export default function TrainerClientsListPage() {
       return;
     }
 
-    if (user?.id) {
-      fetchClients(user.id);
-    }
+    if (!user?.id) return;
+
+    let cancelled = false;
+    // setState внутри callback — разрешённый правилом паттерн.
+    fetchClients(user.id).then((data) => {
+      if (cancelled) return;
+      if (data) setClients(data);
+      setIsClientsLoading(false);
+    });
+
+    return () => {
+      cancelled = true;
+    };
   }, [user, profile, loading, router, fetchClients]);
 
   const handleSignOut = async () => {
@@ -78,7 +89,7 @@ export default function TrainerClientsListPage() {
       <header className="border-b border-[#141519] bg-[#0A0A0A]/90 backdrop-blur-md sticky top-0 z-50 p-4">
         <div className="max-w-xl mx-auto flex items-center justify-between">
           <span className="text-sm font-black text-white tracking-widest uppercase flex items-center gap-2">
-            MYO <span className="text-[#00E676]">ПРО-ТРЕНЕР</span> 
+            MYO <span className="text-[#00E676]">ПРО-ТРЕНЕР</span>
           </span>
           <Button variant="danger" className="p-2 h-7 w-7" onClick={handleSignOut}>
             <LogOut className="h-3.5 w-3.5" />
@@ -98,10 +109,10 @@ export default function TrainerClientsListPage() {
 
           {/* Инпут поиска */}
           <div className="relative">
-            <Input 
-              placeholder="Поиск по имени спортсмена..." 
-              value={searchQuery} 
-              onChange={(e) => setSearchQuery(e.target.value)} 
+            <Input
+              placeholder="Поиск по имени спортсмена..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
             />
           </div>
 
@@ -124,9 +135,9 @@ export default function TrainerClientsListPage() {
                         {client.height && <span>Рост: {client.height} см</span>}
                       </div>
                     </div>
-                    
-                    <Button 
-                      variant="primary" 
+
+                    <Button
+                      variant="primary"
                       className="!text-[9px] h-8 px-4 font-black"
                       onClick={() => router.push(`/trainer/clients/${client.id}`)}
                     >

@@ -4,24 +4,43 @@ import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
 import { FolderArchive } from 'lucide-react';
 
+// Явный тип вместо any[] — колонки соответствуют select ниже.
+interface ArchivedWorkout {
+  id: string;
+  title: string;
+  workout_date: string;
+}
+
 export default function ArchivePage() {
-  const [archivedWorkouts, setArchivedWorkouts] = useState<any[]>([]);
+  const [archivedWorkouts, setArchivedWorkouts] = useState<ArchivedWorkout[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    let cancelled = false;
+
     async function loadArchive() {
       const todayStr = new Date().toISOString().split('T')[0];
-      
-      const { data } = await supabase
+
+      const { data, error } = await supabase
         .from('workouts')
         .select('id, title, workout_date')
         .lt('workout_date', todayStr)
         .order('workout_date', { ascending: false });
 
+      if (cancelled) return;
+      if (error) {
+        console.error('Ошибка загрузки архива:', error);
+        setLoading(false);
+        return;
+      }
       if (data) setArchivedWorkouts(data);
       setLoading(false);
     }
     loadArchive();
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   return (
