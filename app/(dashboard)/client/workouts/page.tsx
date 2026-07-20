@@ -1,10 +1,10 @@
 // app/(dashboard)/client/workouts/page.tsx
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState } from "react";
 import { Card, Button, Input } from "@/components/ui/myo";
 import { useAuth } from "@/providers/AuthProvider";
-import { Dumbbell, Calendar, Plus, Trash2 } from "lucide-react";
+import { Dumbbell, Calendar, Trash2 } from "lucide-react";
 
 interface ExerciseSet {
   id: string;

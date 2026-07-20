@@ -15,12 +15,11 @@ interface ProfileFormState {
 }
 
 export default function SettingsPage() {
-  const { profile, loading } = useAuth(); // ИСПРАВЛЕНО: убран несуществующий role, взят profile[cite: 1]
+  const { profile, loading } = useAuth();
   const router = useRouter();
 
-  const [activeTab] = useState<"profile" | "clients">("profile");
   const [isSavingProfile, setIsSavingProfile] = useState(false);
-  
+
   const [form, setForm] = useState<ProfileFormState>({
     full_name: profile?.full_name || "",
     avatar_url: profile?.avatar_url || "",
@@ -33,7 +32,7 @@ export default function SettingsPage() {
     try {
       await new Promise((resolve) => setTimeout(resolve, 500));
       toast.success("ИЗМЕНЕНИЯ УСПЕШНО СОХРАНЕНЫ");
-    } catch (err: unknown) {
+    } catch {
       toast.error("СБОЙ СОХРАНЕНИЯ");
     } finally {
       setIsSavingProfile(false);
@@ -59,8 +58,13 @@ export default function SettingsPage() {
         <FormField label="ПОЛНОЕ ИМЯ" id="full_name">
           <input id="full_name" type="text" value={form.full_name} onChange={(e) => setForm((f) => ({ ...f, full_name: e.target.value }))} className={inputClass} />
         </FormField>
-        <button type="button" onClick={handleSaveProfile} className="w-full bg-white text-black font-black py-4 rounded-xl text-[10px] uppercase tracking-widest">
-          СОХРАНИТЬ
+        <button
+          type="button"
+          onClick={handleSaveProfile}
+          disabled={isSavingProfile}
+          className="w-full bg-white text-black font-black py-4 rounded-xl text-[10px] uppercase tracking-widest disabled:opacity-50"
+        >
+          {isSavingProfile ? "СОХРАНЕНИЕ..." : "СОХРАНИТЬ"}
         </button>
       </main>
     </div>
