@@ -11,11 +11,11 @@ import {
 import type { User } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabase";
 
-// Обновленная типизация: теперь TS понимает как строчные роли, так и капс из базы данных
+// Роль нормализуется к lowercase при загрузке — единый каноничный регистр по всему приложению.
 export type LocalProfile = {
   id: string;
   full_name: string | null;
-  role: "client" | "trainer" | "CLIENT" | "TRAINER";
+  role: "client" | "trainer";
   trainer_id?: string | null;
   avatar_url?: string | null;
   height?: number | null;
@@ -50,10 +50,28 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       const { data, error } = await supabase
         .from("profiles")
-        .select("*")
+        .select("id, full_name, role, trainer_id, avatar_url, height, weight")
         .eq("id", userId)
         .single();
-      if (!error && data) return data as LocalProfile;
+
+      if (error) {
+        // PGRST116 = строка ещё не создана (лаг Postgres-триггера сразу после signUp).
+        // Это не отказ БД — не поднимаем dbUnavailable, просто вернём null.
+        if (error.code !== "PGRST116") setDbUnavailable(true);
+        return null;
+      }
+
+      if (data) {
+        return {
+          id: data.id,
+          full_name: data.full_name ?? null,
+          role: String(data.role).toLowerCase() === "trainer" ? "trainer" : "client",
+          trainer_id: data.trainer_id ?? null,
+          avatar_url: data.avatar_url ?? null,
+          height: data.height ?? null,
+          weight: data.weight ?? null,
+        };
+      }
     } catch (err) {
       console.error("[useAuth] Profile load error:", err);
       setDbUnavailable(true);
@@ -70,42 +88,31 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     let isMounted = true;
 
+    // Страховка от вечного лоадера при зависшем ответе (инвариант проекта — 2.5с).
     const forceRenderTimeout = setTimeout(() => {
-      if (isMounted && loading) setLoading(false);
+      if (isMounted) setLoading(false);
     }, 2500);
 
-    async function initializeAuth() {
-      try {
-        const { data: { session }, error } = await supabase.auth.getSession();
-        if (error) throw error;
-
-        if (session?.user && isMounted) {
-          setUser(session.user);
-          const p = await loadProfileData(session.user.id);
-          if (isMounted) setProfile(p);
-        }
-      } catch (err) {
-        console.error("[useAuth] Init error:", err);
-      } finally {
-        if (isMounted) {
-          setLoading(false);
-          clearTimeout(forceRenderTimeout);
-        }
-      }
-    }
-
-    initializeAuth();
-
+    // onAuthStateChange сразу отдаёт INITIAL_SESSION с текущей сессией (или null),
+    // поэтому отдельный getSession() не нужен — это убирает двойную загрузку профиля.
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
       if (!isMounted) return;
+
       if (event === "SIGNED_OUT") {
         setUser(null);
         setProfile(null);
-        setLoading(false);
       } else if (session?.user) {
         setUser(session.user);
         const p = await loadProfileData(session.user.id);
         if (isMounted) setProfile(p);
+      } else {
+        setUser(null);
+        setProfile(null);
+      }
+
+      if (isMounted) {
+        setLoading(false);
+        clearTimeout(forceRenderTimeout);
       }
     });
 

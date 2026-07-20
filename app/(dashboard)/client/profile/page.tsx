@@ -8,7 +8,7 @@ interface UserProfile {
   id: string;
   name: string;
   email: string;
-  role: "CLIENT" | "TRAINER";
+  role: "client" | "trainer"; // Каноничный lowercase, как в БД
   invite_code?: string;
 }
 
@@ -17,6 +17,8 @@ export default function ProfilePage() {
   const [loading, setLoading] = useState<boolean>(true);
 
   useEffect(() => {
+    let cancelled = false; // Guard от setState после размонтирования
+
     async function fetchProfileData() {
       try {
         // 1. Получаем текущего юзера из сессии auth
@@ -31,15 +33,30 @@ export default function ProfilePage() {
           .single();
 
         if (error) throw error;
-        if (data) setProfile(data as UserProfile);
+        if (data && !cancelled) {
+          // Нормализуем роль к lowercase — в БД регистр может быть непостоянным
+          const normalizedRole =
+            String(data.role).toLowerCase() === "trainer" ? "trainer" : "client";
+          setProfile({
+            id: data.id,
+            name: data.name,
+            email: data.email,
+            role: normalizedRole,
+            invite_code: data.invite_code ?? undefined,
+          });
+        }
       } catch (err) {
         console.error("Ошибка при загрузке профиля:", err);
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
     }
 
     fetchProfileData();
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   if (loading) {
@@ -53,7 +70,7 @@ export default function ProfilePage() {
   return (
     <div className="p-6 font-mono text-[#E1E3E6] max-w-md mx-auto animate-fadeIn">
       <div className="bg-[#1A1A1A] border border-[#262626] rounded-xl p-5 shadow-xl space-y-6">
-        
+
         {/* Хедер карточки */}
         <div className="border-b border-[#262626] pb-4">
           <h1 className="text-xs font-black uppercase tracking-widest text-white flex items-center gap-2">
@@ -84,14 +101,14 @@ export default function ProfilePage() {
               <Shield className="w-3.5 h-3.5 text-gray-500" /> Доступ:
             </span>
             <span className={`font-bold tracking-wider uppercase text-[10px] px-2 py-0.5 rounded ${
-              profile?.role === "TRAINER" ? "bg-purple-950 text-purple-400 border border-purple-800" : "bg-[#1F2E2B] text-[#00F5D4] border border-[#16423C]"
+              profile?.role === "trainer" ? "bg-purple-950 text-purple-400 border border-purple-800" : "bg-[#1F2E2B] text-[#00F5D4] border border-[#16423C]"
             }`}>
-              {profile?.role === "TRAINER" ? "Наставник" : "Спортсмен"}
+              {profile?.role === "trainer" ? "Наставник" : "Спортсмен"}
             </span>
           </div>
 
           {/* Если зашел тренер — выводим его мастер-код */}
-          {profile?.role === "TRAINER" && profile.invite_code && (
+          {profile?.role === "trainer" && profile.invite_code && (
             <div className="bg-[#1a140a] border border-[#423116] p-3 rounded-lg flex justify-between items-center">
               <span className="text-[#c2a272] font-semibold flex items-center gap-1.5">
                 <Key className="w-3.5 h-3.5" /> Ваш Инвайт-код:

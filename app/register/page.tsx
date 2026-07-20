@@ -5,26 +5,26 @@ import { useState, Suspense } from "react";
 import { supabase } from "@/lib/supabase";
 import { useRouter, useSearchParams } from "next/navigation";
 import { motion } from "framer-motion";
-import toast, { Toaster } from "react-hot-toast";
+import toast from "react-hot-toast"; // Toaster монтируется глобально в app/layout.tsx
 import { UserPlus, Mail, Lock, User, ArrowLeft, Dumbbell } from "lucide-react";
 
 
 function RegisterForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  
+
   const inviteCode = searchParams.get("invite")?.trim() || null;
   const legacyTrainerId = searchParams.get("trainer_id")?.trim() || null;
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [fullName, setFullName] = useState("");
-  const [role, setRole] = useState<"client" | "trainer">(inviteCode || legacyTrainerId ? "client" : "client");
+  const [role, setRole] = useState<"client" | "trainer">("client");
   const [loading, setLoading] = useState(false);
 
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
-    
+
     const cleanEmail = email.trim().toLowerCase();
     const cleanFullName = fullName.trim().replace(/\s+/g, ' ');
 
@@ -83,40 +83,39 @@ function RegisterForm() {
       }
 
       if (authData?.user) {
-        // Если была успешная регистрация по инвайту — обновляем счетчик на бэкенде
+        // Атомарный инкремент счётчика инвайтов на стороне БД (без гонки read-then-write).
+        // Требует SQL-функции increment_invite_usage (см. миграцию в комментарии PR).
         if (role === "client" && inviteCode && finalTrainerId) {
-          try {
-            const { data: currentInvite } = await supabase
-              .from("trainer_invites")
-              .select("uses_count")
-              .eq("invite_code", inviteCode)
-              .single();
-              
-            const nextCount = currentInvite ? currentInvite.uses_count + 1 : 1;
+          const { error: incErr } = await supabase.rpc("increment_invite_usage", {
+            p_invite_code: inviteCode,
+          });
+          if (incErr) console.error("Не удалось обновить счётчик инвайтов:", incErr);
+        }
 
-            await supabase
-              .from("trainer_invites")
-              .update({ uses_count: nextCount })
-              .eq("invite_code", inviteCode);
-          } catch (syncErr) {
-            console.error("Не удалось обновить счётчик инвайтов:", syncErr);
-          }
+        // Если в проекте включён Confirm email — сессии после signUp не будет.
+        // Тогда нельзя редиректить на "/" (middleware вернёт на /login → петля).
+        if (!authData.session) {
+          toast.success("Аккаунт создан! Подтвердите email по ссылке из письма.", { id: loadingToast });
+          setLoading(false);
+          setTimeout(() => router.push("/login"), 2000);
+          return;
         }
 
         toast.success("Регистрация успешна! Входим...", { id: loadingToast });
         setLoading(false);
 
-        // Форсируем перезагрузку на корень, чтобы AuthProvider и миграция Dexie v3 инициализировали чистую сессию
+        // Форсируем перезагрузку на корень, чтобы AuthProvider инициализировал чистую сессию из куки
         setTimeout(() => {
           window.location.href = "/";
         }, 500);
-        
+
       } else {
         throw new Error("Не удалось получить данные сессии пользователя.");
       }
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error("[Register Error]:", error);
-      toast.error(error.message || "Неизвестный сбой при регистрации", { id: loadingToast });
+      const message = error instanceof Error ? error.message : "Неизвестный сбой при регистрации";
+      toast.error(message, { id: loadingToast });
     } finally {
       setLoading(false);
     }
@@ -124,16 +123,14 @@ function RegisterForm() {
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-zinc-950 px-4 selection:bg-emerald-500/30 py-12">
-      <Toaster position="top-right" toastOptions={{ style: { background: "#0A0A0A", color: "#FFF", border: "1px solid #18181B" } }} />
-      
-      <motion.div 
-        initial={{ opacity: 0, y: 20 }} 
-        animate={{ opacity: 1, y: 0 }} 
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.5 }}
         className="w-full max-w-md space-y-8 rounded-3xl border border-zinc-900 bg-zinc-900/20 p-8 backdrop-blur-xl relative"
       >
-        <button 
-          type="button" 
+        <button
+          type="button"
           onClick={() => router.push('/login')}
           className="absolute left-6 top-8 text-zinc-500 hover:text-white transition flex items-center gap-2 text-sm"
         >
@@ -141,7 +138,7 @@ function RegisterForm() {
         </button>
 
         <div className="flex flex-col items-center space-y-4 pt-4">
-          <motion.div 
+          <motion.div
             whileHover={{ scale: 1.05 }}
             className="flex h-16 w-16 items-center justify-center rounded-2xl bg-emerald-500 text-zinc-950 shadow-[0_0_30px_rgba(16,185,129,0.2)]"
           >
@@ -164,9 +161,9 @@ function RegisterForm() {
             <div className="relative flex items-center">
               <User className="absolute left-4 h-4 w-4 text-zinc-600" />
               <input
-                type="text" 
-                required 
-                value={fullName} 
+                type="text"
+                required
+                value={fullName}
                 onChange={(e) => setFullName(e.target.value)}
                 className="w-full rounded-2xl border border-zinc-800 bg-zinc-950 py-4 pl-11 pr-4 text-sm text-white placeholder-zinc-700 outline-none transition focus:border-emerald-500/50 focus:ring-1 focus:ring-emerald-500/50"
                 placeholder="Имя и Фамилия"
@@ -178,9 +175,9 @@ function RegisterForm() {
             <div className="relative flex items-center">
               <Mail className="absolute left-4 h-4 w-4 text-zinc-600" />
               <input
-                type="email" 
-                required 
-                value={email} 
+                type="email"
+                required
+                value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 className="w-full rounded-2xl border border-zinc-800 bg-zinc-950 py-4 pl-11 pr-4 text-sm text-white placeholder-zinc-700 outline-none transition focus:border-emerald-500/50 focus:ring-1 focus:ring-emerald-500/50"
                 placeholder="Email"
@@ -192,10 +189,10 @@ function RegisterForm() {
             <div className="relative flex items-center">
               <Lock className="absolute left-4 h-4 w-4 text-zinc-600" />
               <input
-                type="password" 
-                required 
-                minLength={6} 
-                value={password} 
+                type="password"
+                required
+                minLength={6}
+                value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 className="w-full rounded-2xl border border-zinc-800 bg-zinc-950 py-4 pl-11 pr-4 text-sm text-white placeholder-zinc-700 outline-none transition focus:border-emerald-500/50 focus:ring-1 focus:ring-emerald-500/50"
                 placeholder="Пароль (минимум 6 символов)"
@@ -206,7 +203,7 @@ function RegisterForm() {
           {!inviteCode && !legacyTrainerId && (
             <div className="flex gap-2 pt-2">
               <button
-                type="button" 
+                type="button"
                 onClick={() => setRole("client")}
                 className={`flex-1 rounded-xl py-2.5 text-xs font-bold uppercase tracking-wider transition border ${
                   role === "client" ? "bg-zinc-800 border-emerald-500/50 text-white" : "bg-zinc-950 border-zinc-800 text-zinc-500 hover:text-zinc-300"
@@ -215,7 +212,7 @@ function RegisterForm() {
                 Я Клиент
               </button>
               <button
-                type="button" 
+                type="button"
                 onClick={() => setRole("trainer")}
                 className={`flex-1 rounded-xl py-2.5 text-xs font-bold uppercase tracking-wider transition border ${
                   role === "trainer" ? "bg-zinc-800 border-emerald-500/50 text-white" : "bg-zinc-950 border-zinc-800 text-zinc-500 hover:text-zinc-300"
@@ -227,7 +224,7 @@ function RegisterForm() {
           )}
 
           <button
-            type="submit" 
+            type="submit"
             disabled={loading}
             className="group relative mt-4 flex w-full items-center justify-center gap-2 rounded-2xl bg-emerald-500 py-4 text-sm font-bold text-zinc-950 shadow-lg shadow-emerald-500/10 transition hover:bg-emerald-400 disabled:opacity-50"
           >
@@ -242,7 +239,7 @@ function RegisterForm() {
         <div className="text-center text-sm text-zinc-400 pt-4">
           Уже есть аккаунт?{" "}
           <button
-            type="button" 
+            type="button"
             onClick={() => router.push('/login')}
             className="font-medium text-emerald-400 hover:text-emerald-300 transition"
           >

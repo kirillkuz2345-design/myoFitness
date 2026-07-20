@@ -3,9 +3,8 @@ import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import "./globals.css";
 import { Toaster } from "react-hot-toast";
-import { AuthProvider } from "@/providers/AuthProvider"; // ИСПРАВЛЕНО: добавлен именованный импорт
-import Link from "next/link";
-import { User } from "lucide-react";
+import { AuthProvider } from "@/providers/AuthProvider";
+import SettingsFab from "@/components/ui/layout/SettingsFab"; // Гейтит кнопку настроек по авторизации
 
 const inter = Inter({ subsets: ["latin"] });
 
@@ -25,15 +24,10 @@ export default function RootLayout({
         <AuthProvider>
           {children}
 
-          <Link
-            href="/settings"
-            className="fixed bottom-6 right-6 z-50 p-3 bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-emerald-400 hover:border-emerald-500/50 rounded-xl shadow-lg transition-all duration-200 flex items-center justify-center hover:scale-105 active:scale-95 group backdrop-blur-md"
-            title="Личные настройки"
-          >
-            <User size={22} className="group-hover:animate-pulse" />
-          </Link>
+          {/* Кнопка настроек показывается только авторизованным (см. SettingsFab) */}
+          <SettingsFab />
 
-          <Toaster 
+          <Toaster
             position="top-center"
             toastOptions={{
               style: {
@@ -49,7 +43,7 @@ export default function RootLayout({
                   secondary: '#09090b',
                 },
               },
-            }} 
+            }}
           />
         </AuthProvider>
       </body>
