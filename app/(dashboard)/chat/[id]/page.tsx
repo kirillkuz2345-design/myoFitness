@@ -1,7 +1,11 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, use } from 'react';
+import type {
+  RealtimePostgresInsertPayload,
+} from '@supabase/supabase-js';
 import { supabase } from '@/lib/supabase';
+import toast from 'react-hot-toast';
 
 interface Message {
   id: string;
@@ -10,41 +14,57 @@ interface Message {
   created_at: string;
 }
 
-export default function ChatRoom({ params }: { params: { id: string } }) {
+// Next.js 16: params — это Promise, разворачиваем через use().
+export default function ChatRoom({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = use(params);
+
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
+  const [sending, setSending] = useState(false);
   const chatEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
+    let cancelled = false; // guard от setState после размонтирования / смены id
+
     async function loadMessages() {
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from('messages')
-        .select('*')
-        .eq('chat_id', params.id)
+        .select('id, sender_id, text, created_at')
+        .eq('chat_id', id)
         .order('created_at', { ascending: true });
+
+      if (cancelled) return;
+      if (error) {
+        console.error('[chat] Ошибка загрузки истории:', error);
+        return;
+      }
       if (data) setMessages(data);
     }
     loadMessages();
 
     const channel = supabase
-      .channel(`chat-${params.id}`)
+      .channel(`chat-${id}`)
       .on(
         'postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'messages', filter: `chat_id=eq.${params.id}` },
-        (payload: { new: any }) => {
-          if (payload.new) {
-            setMessages((prev) => [...prev, payload.new as Message]);
-          }
+        { event: 'INSERT', schema: 'public', table: 'messages', filter: `chat_id=eq.${id}` },
+        (payload: RealtimePostgresInsertPayload<Message>) => {
+          const row = payload.new;
+          if (cancelled || !row) return;
+          // Дедуп: realtime может продублировать строку, которую уже вернул initial select.
+          setMessages((prev) =>
+            prev.some((m) => m.id === row.id) ? prev : [...prev, row]
+          );
         }
       )
-      .subscribe((status: string) => {
+      .subscribe((status) => {
         if (status === 'SUBSCRIBED') console.log('Realtime чат подключен');
       });
 
     return () => {
+      cancelled = true;
       supabase.removeChannel(channel);
     };
-  }, [params.id]);
+  }, [id]);
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -52,18 +72,30 @@ export default function ChatRoom({ params }: { params: { id: string } }) {
 
   const sendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!input.trim()) return;
+    const text = input.trim();
+    if (!text || sending) return;
 
     const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return;
+    if (!user) {
+      toast.error('Сессия истекла, войдите заново');
+      return;
+    }
 
-    await supabase.from('messages').insert([
+    setSending(true);
+    const { error } = await supabase.from('messages').insert([
       {
-        chat_id: params.id,
+        chat_id: id,
         sender_id: user.id,
-        text: input.trim(),
+        text,
       },
     ]);
+    setSending(false);
+
+    if (error) {
+      console.error('[chat] Ошибка отправки:', error);
+      toast.error('Не удалось отправить сообщение');
+      return;
+    }
     setInput('');
   };
 
@@ -85,7 +117,11 @@ export default function ChatRoom({ params }: { params: { id: string } }) {
           placeholder="Напишите сообщение..."
           className="flex-1 bg-[#0A0A0A] border border-[#262626] rounded-lg p-2 text-xs text-white focus:border-[#00F5D4] focus:outline-none"
         />
-        <button type="submit" className="bg-[#00F5D4] text-black px-4 py-2 rounded-lg text-xs font-bold uppercase">
+        <button
+          type="submit"
+          disabled={sending}
+          className="bg-[#00F5D4] text-black px-4 py-2 rounded-lg text-xs font-bold uppercase disabled:opacity-50"
+        >
           Отправить
         </button>
       </form>
