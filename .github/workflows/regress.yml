@@ -1,0 +1,32 @@
+name: regress
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  regress:
+    runs-on: ubuntu-latest
+    env:
+      # Реальные значения берутся из secrets репозитория (Settings → Secrets → Actions),
+      # иначе подставляются заглушки — их достаточно, т.к. данные грузятся на клиенте (useEffect),
+      # а не во время сборки статических страниц.
+      NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL || 'https://placeholder.supabase.co' }}
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'placeholder-anon-key' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install deps
+        run: npm ci
+
+      - name: Run regression
+        run: |
+          chmod +x ./regress.sh
+          ./regress.sh
