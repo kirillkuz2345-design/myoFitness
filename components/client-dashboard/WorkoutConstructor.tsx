@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import { supabase } from '../../lib/supabase';
 import { Dumbbell, Calendar } from 'lucide-react';
 
@@ -19,8 +20,18 @@ interface DaySchedule {
   workouts: WorkoutCard[];
 }
 
+// Локальное форматирование даты в YYYY-MM-DD без сдвига в UTC.
+function formatLocalDate(d: Date): string {
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
 export default function WeeklySchedule() {
+  const router = useRouter();
   const [weekDays, setWeekDays] = useState<DaySchedule[]>([]);
+  const [userId, setUserId] = useState<string | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
 
   useEffect(() => {
@@ -28,11 +39,12 @@ export default function WeeklySchedule() {
       try {
         const { data: { user } } = await supabase.auth.getUser();
         if (!user) return;
+        setUserId(user.id);
 
         // 1. Генерируем массив дат текущей недели (Пн - Вс)
         const today = new Date();
         const currentDayOfWeek = today.getDay(); // 0 = Вс, 1 = Пн, ..., 6 = Сб
-        
+
         // Корректируем, чтобы неделя начиналась с Понедельника (в JS 0 — это Воскресенье)
         const distanceToMonday = currentDayOfWeek === 0 ? -6 : 1 - currentDayOfWeek;
         const monday = new Date(today);
@@ -50,23 +62,21 @@ export default function WeeklySchedule() {
 
         const generatedDays: DaySchedule[] = [];
         const dateStrings: string[] = [];
+        const todayStr = formatLocalDate(today);
 
         for (let i = 0; i < 7; i++) {
           const currentDay = new Date(monday);
           currentDay.setDate(monday.getDate() + i);
-          
-          // Форматируем дату в YYYY-MM-DD для фильтрации в БД
-          const dateStr = currentDay.toISOString().split('T')[0];
-          dateStrings.push(dateStr);
 
-          // Проверяем, совпадает ли с сегодняшним числом (с учетом локального часового пояса)
-          const isToday = dateStr === today.toISOString().split('T')[0];
+          // Форматируем дату в YYYY-MM-DD по локальному времени для фильтрации в БД
+          const dateStr = formatLocalDate(currentDay);
+          dateStrings.push(dateStr);
 
           generatedDays.push({
             name: daysNames[i].name,
             shortName: daysNames[i].short,
             dateString: dateStr,
-            isToday,
+            isToday: dateStr === todayStr,
             workouts: []
           });
         }
@@ -119,10 +129,10 @@ export default function WeeklySchedule() {
       {/* Адаптивная календарная сетка: на мобилках в один столбец, на десктопе в 7 колонок */}
       <div className="grid grid-cols-1 md:grid-cols-7 gap-4">
         {weekDays.map((day) => (
-          <div 
-            key={day.dateString} 
+          <div
+            key={day.dateString}
             className={`p-4 rounded-xl border flex flex-col min-h-[140px] transition-all duration-200 ${
-              day.isToday 
+              day.isToday
                 ? 'bg-[#0A0A0A] border-[#00F5D4] shadow-[0_0_15px_rgba(0,245,212,0.15)]' // Подсветка текущего дня по ТЗ
                 : 'bg-[#0A0A0A] border-[#262626] hover:border-gray-700'
             }`}
@@ -143,7 +153,7 @@ export default function WeeklySchedule() {
                 day.workouts.map((workout) => (
                   <div
                     key={workout.id}
-                    onClick={() => window.location.href = `/client/workout/${workout.id}`} // Переход к выполнению тренировки по ТЗ
+                    onClick={() => router.push(`/client/workout/${workout.id}`)} // Переход к выполнению тренировки по ТЗ
                     className="p-2.5 bg-[#1A1A1A] border border-[#262626] rounded-lg hover:border-[#00F5D4] cursor-pointer transition-all duration-150 group flex flex-col justify-between"
                   >
                     <span className="text-xs font-medium text-gray-200 group-hover:text-[#00F5D4] transition-colors line-clamp-2">
@@ -152,7 +162,7 @@ export default function WeeklySchedule() {
                     <div className="mt-1.5 flex items-center justify-between text-[10px] text-gray-500">
                       <span className="flex items-center gap-0.5">
                         <Dumbbell className="w-3 h-3" />
-                        {workout.creator_id === workout.id ? 'Кастомная' : 'От тренера'}
+                        {userId && workout.creator_id === userId ? 'Кастомная' : 'От тренера'}
                       </span>
                     </div>
                   </div>

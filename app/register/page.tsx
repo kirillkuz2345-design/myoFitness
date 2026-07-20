@@ -2,13 +2,12 @@
 "use client";
 
 import { useState, Suspense } from "react";
-import { getSupabaseClient } from "@/lib/supabase/client";
+import { supabase } from "@/lib/supabase";
 import { useRouter, useSearchParams } from "next/navigation";
 import { motion } from "framer-motion";
 import toast, { Toaster } from "react-hot-toast";
 import { UserPlus, Mail, Lock, User, ArrowLeft, Dumbbell } from "lucide-react";
 
-const supabase = getSupabaseClient();
 
 function RegisterForm() {
   const router = useRouter();

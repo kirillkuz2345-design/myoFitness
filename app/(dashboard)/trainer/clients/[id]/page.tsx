@@ -1,9 +1,15 @@
 'use client';
 
 import { useState, useEffect, use } from 'react';
+import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
+import { useAuth } from '@/providers/AuthProvider';
 import { ArrowLeft, Save } from 'lucide-react';
 import Link from 'next/link';
+import type {
+  RealtimeChannel,
+  RealtimePostgresChangesPayload,
+} from '@supabase/supabase-js';
 
 interface Exercise {
   id: string;
@@ -29,11 +35,20 @@ interface Props {
 
 export default function TrainerClientView({ params }: Props) {
   const { id: clientId } = use(params);
+  const router = useRouter();
+  const { user, profile, loading: authLoading } = useAuth();
 
   const [workouts, setWorkouts] = useState<Workout[]>([]);
   const [selectedWorkout, setSelectedWorkout] = useState<Workout | null>(null);
   const [exercises, setExercises] = useState<Exercise[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
+
+  // Role-gate: только тренер может открывать разбор чужих тренировок.
+  useEffect(() => {
+    if (!authLoading && (!user || profile?.role?.toUpperCase() !== 'TRAINER')) {
+      router.replace('/login');
+    }
+  }, [authLoading, user, profile, router]);
 
   useEffect(() => {
     async function loadClientWorkouts() {
@@ -62,8 +77,40 @@ export default function TrainerClientView({ params }: Props) {
   useEffect(() => {
     if (!selectedWorkout) return;
 
-    let activeChannel: any = null;
-    const currentWorkoutId = selectedWorkout.id; // Кэшируем ID, гарантируя безопасность для TypeScript
+    const currentWorkoutId = selectedWorkout.id;
+    let cancelled = false;
+
+    // Канал создаём синхронно (до await), чтобы cleanup всегда его видел
+    // и не было утечки/канала-сироты при быстрой смене тренировки.
+    const channel: RealtimeChannel = supabase
+      .channel(`trainer-workout-realtime-${currentWorkoutId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'exercises',
+          filter: `workout_id=eq.${currentWorkoutId}`,
+        },
+        (payload: RealtimePostgresChangesPayload<Exercise>) => {
+          setExercises((prev) => {
+            if (payload.eventType === 'INSERT') {
+              const row = payload.new as Exercise;
+              return prev.some((ex) => ex.id === row.id) ? prev : [...prev, row];
+            }
+            if (payload.eventType === 'UPDATE') {
+              const row = payload.new as Exercise;
+              return prev.map((ex) => (ex.id === row.id ? row : ex));
+            }
+            if (payload.eventType === 'DELETE') {
+              const oldRow = payload.old as Partial<Exercise>;
+              return prev.filter((ex) => ex.id !== oldRow.id);
+            }
+            return prev;
+          });
+        }
+      )
+      .subscribe();
 
     async function loadExercises() {
       try {
@@ -73,28 +120,8 @@ export default function TrainerClientView({ params }: Props) {
           .eq('workout_id', currentWorkoutId);
 
         if (error) throw error;
-        if (data) setExercises(data);
-
-        // Real-time подписка
-        activeChannel = supabase
-          .channel(`trainer-workout-realtime-${currentWorkoutId}`)
-          .on(
-            'postgres_changes',
-            {
-              event: 'UPDATE',
-              schema: 'public',
-              table: 'exercises',
-              filter: `workout_id=eq.${currentWorkoutId}`,
-            },
-            (payload: any) => {
-              if (payload.new) {
-                setExercises((prev) =>
-                  prev.map((ex) => (ex.id === payload.new.id ? (payload.new as Exercise) : ex))
-                );
-              }
-            }
-          )
-          .subscribe();
+        // Guard: применяем только если эффект не отменён (не сменилась тренировка).
+        if (!cancelled && data) setExercises(data);
       } catch (err) {
         console.error('Ошибка загрузки упражнений:', err);
       }
@@ -103,21 +130,38 @@ export default function TrainerClientView({ params }: Props) {
     loadExercises();
 
     return () => {
-      if (activeChannel) {
-        supabase.removeChannel(activeChannel);
-      }
+      cancelled = true;
+      supabase.removeChannel(channel);
     };
   }, [selectedWorkout]);
 
   const handleSaveComment = async (exerciseId: string, comment: string) => {
+    // Сохраняем предыдущее значение для отката при ошибке.
+    let previousComment: string | null = null;
     setExercises((prev) =>
-      prev.map((ex) => (ex.id === exerciseId ? { ...ex, trainer_comment: comment } : ex))
+      prev.map((ex) => {
+        if (ex.id === exerciseId) {
+          previousComment = ex.trainer_comment;
+          return { ...ex, trainer_comment: comment };
+        }
+        return ex;
+      })
     );
 
-    await supabase
+    const { error } = await supabase
       .from('exercises')
       .update({ trainer_comment: comment, updated_at: new Date().toISOString() })
       .eq('id', exerciseId);
+
+    if (error) {
+      console.error('Ошибка сохранения комментария:', error);
+      // Откат оптимистичного апдейта.
+      setExercises((prev) =>
+        prev.map((ex) =>
+          ex.id === exerciseId ? { ...ex, trainer_comment: previousComment } : ex
+        )
+      );
+    }
   };
 
   if (loading) {

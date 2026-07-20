@@ -14,11 +14,11 @@ interface MetricEntry {
 export default function ClientAnalytics() {
   const [metrics, setMetrics] = useState<MetricEntry[]>([]);
   const [activeTab, setActiveTab] = useState<string>('weight'); // 'weight' | 'calories' | 'waist'
-  
+
   // Состояния для формы добавления
   const [newValue, setNewValue] = useState<string>('');
   const [newDate, setNewDate] = useState<string>(new Date().toISOString().split('T')[0]);
-  
+
   const [loading, setLoading] = useState<boolean>(false);
   const [fetching, setFetching] = useState<boolean>(true);
 
@@ -33,9 +33,13 @@ export default function ClientAnalytics() {
   const loadMetrics = async () => {
     setFetching(true);
     try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
       const { data, error } = await supabase
         .from('client_metrics')
         .select('id, metric_type, value, recorded_at')
+        .eq('client_id', user.id) // Явный фильтр по пользователю (не полагаемся только на RLS)
         .order('recorded_at', { ascending: true }); // Для правильного отображения на графике слева направо
 
       if (error) throw error;
@@ -210,7 +214,7 @@ export default function ClientAnalytics() {
                     const minVal = Math.min(...values) * 0.99;
                     const maxVal = Math.max(...values) * 1.01;
                     const valRange = maxVal - minVal || 1;
-                    
+
                     const cx = padding + (idx / (filteredMetrics.length - 1)) * (width - padding * 2);
                     const cy = height - padding - ((m.value - minVal) / valRange) * (height - padding * 2);
 
