@@ -2,20 +2,10 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
-import { useRouter, usePathname } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { useAuth } from "@/providers/AuthProvider";
 import { supabase } from "@/lib/supabase";
-import {
-  Settings,
-  Plus,
-  X,
-  ChevronRight,
-  LayoutGrid,
-  CalendarDays,
-  MessageSquare,
-  LogOut,
-  type LucideIcon,
-} from "lucide-react";
+import { Plus, X, ChevronRight } from "lucide-react";
 
 // ── Типы ─────────────────────────────────────────────────────
 type DisplayType = "ring" | "trend";
@@ -132,27 +122,9 @@ function Sparkline({ values, color }: { values: number[]; color: string }) {
   );
 }
 
-// ── Навигация ────────────────────────────────────────────────
-interface NavItem {
-  key: string;
-  label: string;
-  icon: LucideIcon;
-  href: string;
-  action?: "logout";
-}
-
-const NAV: NavItem[] = [
-  { key: "cabinet", label: "Кабинет", icon: LayoutGrid, href: "/client" },
-  { key: "schedule", label: "Расписание", icon: CalendarDays, href: "/history" },
-  { key: "chat", label: "Чат", icon: MessageSquare, href: "/chat" },
-  { key: "settings", label: "Настройки", icon: Settings, href: "/settings" },
-  { key: "logout", label: "Выход", icon: LogOut, href: "/login", action: "logout" },
-];
-
 export default function ClientDashboard() {
   const { user, profile, loading } = useAuth();
   const router = useRouter();
-  const pathname = usePathname();
 
   const [configs, setConfigs] = useState<MetricConfig[]>([]);
   const [metrics, setMetrics] = useState<MetricEntry[]>([]);
@@ -194,15 +166,6 @@ export default function ClientDashboard() {
       setConfigs(data.configs);
       setMetrics(data.metrics);
     }
-  };
-
-  const handleNav = async (item: NavItem) => {
-    if (item.action === "logout") {
-      await supabase.auth.signOut();
-      router.replace("/login");
-      return;
-    }
-    router.push(item.href);
   };
 
   const handleCreateConfig = async (e: React.FormEvent) => {
@@ -271,7 +234,7 @@ export default function ClientDashboard() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-[#0A0A0A] flex items-center justify-center font-mono">
+      <div className="flex items-center justify-center py-20">
         <span className="text-xs text-zinc-500 uppercase tracking-widest animate-pulse">
           Загрузка кабинета...
         </span>
@@ -282,160 +245,133 @@ export default function ClientDashboard() {
   const displayName = profile?.full_name || user?.email || "Атлет";
 
   return (
-    <div className="min-h-screen bg-[#0A0A0A] text-[#E1E3E6] font-mono antialiased pb-24">
-      {/* Шапка */}
-      <header className="sticky top-0 z-40 border-b border-[#1C1C1E] bg-[#0A0A0A]/90 backdrop-blur-md">
-        <div className="mx-auto max-w-md px-5 h-16 flex items-center justify-between">
-          <h1 className="text-sm font-black uppercase tracking-[0.2em] text-white">
-            NAORE <span className="text-[#00E676]">FITNESS</span>
-          </h1>
+    <div className="space-y-6">
+      {/* Показатели */}
+      <section className="space-y-3">
+        <div className="flex items-center justify-between">
+          <h2 className="text-[9px] font-bold uppercase tracking-[0.25em] text-[#989AA0]">
+            {displayName} · Показатели
+          </h2>
           <button
             type="button"
-            onClick={() => router.push("/settings")}
-            aria-label="Настройки"
-            className="h-9 w-9 flex items-center justify-center rounded-lg border border-[#262626] bg-[#111214] text-[#989AA0] hover:text-white transition-colors"
+            onClick={() => setShowConfigModal(true)}
+            className="flex items-center gap-1 text-[9px] font-bold uppercase tracking-wider text-[#00E676] hover:text-[#00c765]"
           >
-            <Settings className="w-4 h-4" />
+            <Plus className="w-3 h-3" /> Показатель
           </button>
         </div>
-      </header>
 
-      <main className="mx-auto max-w-md px-5 py-6 space-y-6">
-        {/* Показатели */}
-        <section className="space-y-3">
-          <div className="flex items-center justify-between">
-            <h2 className="text-[9px] font-bold uppercase tracking-[0.25em] text-[#989AA0]">
-              {displayName} · Показатели
-            </h2>
-            <button
-              type="button"
-              onClick={() => setShowConfigModal(true)}
-              className="flex items-center gap-1 text-[9px] font-bold uppercase tracking-wider text-[#00E676] hover:text-[#00c765]"
-            >
-              <Plus className="w-3 h-3" /> Показатель
-            </button>
+        {fetching ? (
+          <div className="rounded-2xl border border-[#1C1C1E] bg-[#111214] p-6 text-center">
+            <span className="text-xs text-zinc-600 animate-pulse">Загрузка показателей...</span>
           </div>
+        ) : configs.length === 0 ? (
+          <button
+            type="button"
+            onClick={() => setShowConfigModal(true)}
+            className="w-full rounded-2xl border border-dashed border-[#262626] bg-[#111214]/40 p-6 text-center hover:border-[#00E676]/50 transition-colors"
+          >
+            <Plus className="w-5 h-5 mx-auto mb-2 text-zinc-600" />
+            <p className="text-[10px] text-zinc-500 uppercase tracking-wider font-bold">
+              Добавьте свой первый показатель:<br />сон, посещаемость, результат, вес…
+            </p>
+          </button>
+        ) : (
+          <div className="grid grid-cols-2 gap-3">
+            {configs.map((cfg) => {
+              const series = metrics.filter((m) => m.metric_type === cfg.id).map((m) => m.value);
+              const latest = series.length ? series[series.length - 1] : null;
+              const percent =
+                cfg.display_type === "ring" && cfg.target && cfg.target > 0 && latest !== null
+                  ? (latest / cfg.target) * 100
+                  : 0;
 
-          {fetching ? (
-            <div className="rounded-2xl border border-[#1C1C1E] bg-[#111214] p-6 text-center">
-              <span className="text-xs text-zinc-600 animate-pulse">Загрузка показателей...</span>
-            </div>
-          ) : configs.length === 0 ? (
-            <button
-              type="button"
-              onClick={() => setShowConfigModal(true)}
-              className="w-full rounded-2xl border border-dashed border-[#262626] bg-[#111214]/40 p-6 text-center hover:border-[#00E676]/50 transition-colors"
-            >
-              <Plus className="w-5 h-5 mx-auto mb-2 text-zinc-600" />
-              <p className="text-[10px] text-zinc-500 uppercase tracking-wider font-bold">
-                Добавьте свой первый показатель:<br />сон, посещаемость, результат, вес…
-              </p>
-            </button>
-          ) : (
-            <div className="grid grid-cols-2 gap-3">
-              {configs.map((cfg) => {
-                const series = metrics
-                  .filter((m) => m.metric_type === cfg.id)
-                  .map((m) => m.value);
-                const latest = series.length ? series[series.length - 1] : null;
-                const percent =
-                  cfg.display_type === "ring" && cfg.target && cfg.target > 0 && latest !== null
-                    ? (latest / cfg.target) * 100
-                    : 0;
-
-                return (
-                  <div
-                    key={cfg.id}
-                    className="rounded-2xl border border-[#1C1C1E] bg-[#111214] p-4 space-y-3 flex flex-col"
-                  >
-                    <div className="flex items-start justify-between gap-2">
-                      <span className="text-[8px] font-bold uppercase tracking-[0.15em] text-[#989AA0] leading-tight">
-                        {cfg.label}
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setValueForConfig(cfg);
-                          setValInput("");
-                          setValDate(new Date().toISOString().split("T")[0]);
-                        }}
-                        aria-label="Внести замер"
-                        className="shrink-0 h-6 w-6 flex items-center justify-center rounded-md border border-[#262626] text-[#989AA0] hover:text-white"
-                      >
-                        <Plus className="w-3 h-3" />
-                      </button>
-                    </div>
-
-                    {cfg.display_type === "ring" ? (
-                      <div className="flex justify-center py-1">
-                        <ProgressRing
-                          percent={percent}
-                          color={cfg.color}
-                          display={
-                            latest === null
-                              ? "—"
-                              : cfg.target
-                                ? `${Math.round(percent)}%`
-                                : String(latest)
-                          }
-                        />
-                      </div>
-                    ) : (
-                      <div className="space-y-1">
-                        <div className="flex items-baseline gap-1">
-                          <span className="text-2xl font-black text-white">
-                            {latest === null ? "—" : latest}
-                          </span>
-                          {cfg.unit && (
-                            <span className="text-[10px] font-bold text-[#989AA0]">{cfg.unit}</span>
-                          )}
-                        </div>
-                        <Sparkline values={series} color={cfg.color} />
-                      </div>
-                    )}
-
-                    {cfg.display_type === "ring" && cfg.target && (
-                      <span className="text-center text-[8px] font-bold text-[#989AA0]">
-                        цель {cfg.target} {cfg.unit}
-                      </span>
-                    )}
+              return (
+                <div
+                  key={cfg.id}
+                  className="rounded-2xl border border-[#1C1C1E] bg-[#111214] p-4 space-y-3 flex flex-col"
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <span className="text-[8px] font-bold uppercase tracking-[0.15em] text-[#989AA0] leading-tight">
+                      {cfg.label}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setValueForConfig(cfg);
+                        setValInput("");
+                        setValDate(new Date().toISOString().split("T")[0]);
+                      }}
+                      aria-label="Внести замер"
+                      className="shrink-0 h-6 w-6 flex items-center justify-center rounded-md border border-[#262626] text-[#989AA0] hover:text-white"
+                    >
+                      <Plus className="w-3 h-3" />
+                    </button>
                   </div>
-                );
-              })}
-            </div>
-          )}
-        </section>
 
-        {/* CTA */}
+                  {cfg.display_type === "ring" ? (
+                    <div className="flex justify-center py-1">
+                      <ProgressRing
+                        percent={percent}
+                        color={cfg.color}
+                        display={
+                          latest === null ? "—" : cfg.target ? `${Math.round(percent)}%` : String(latest)
+                        }
+                      />
+                    </div>
+                  ) : (
+                    <div className="space-y-1">
+                      <div className="flex items-baseline gap-1">
+                        <span className="text-2xl font-black text-white">
+                          {latest === null ? "—" : latest}
+                        </span>
+                        {cfg.unit && <span className="text-[10px] font-bold text-[#989AA0]">{cfg.unit}</span>}
+                      </div>
+                      <Sparkline values={series} color={cfg.color} />
+                    </div>
+                  )}
+
+                  {cfg.display_type === "ring" && cfg.target && (
+                    <span className="text-center text-[8px] font-bold text-[#989AA0]">
+                      цель {cfg.target} {cfg.unit}
+                    </span>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </section>
+
+      {/* CTA */}
+      <button
+        type="button"
+        onClick={() => router.push("/client/workouts")}
+        className="w-full bg-[#00E676] text-black font-black py-4 rounded-2xl text-[11px] uppercase tracking-[0.15em] hover:bg-[#00c765] transition-colors"
+      >
+        Создать персональную тренировку
+      </button>
+
+      {/* От тренера */}
+      <section className="space-y-3">
+        <h2 className="text-[9px] font-bold uppercase tracking-[0.25em] text-[#989AA0]">От тренера</h2>
         <button
           type="button"
           onClick={() => router.push("/client/workouts")}
-          className="w-full bg-[#00E676] text-black font-black py-4 rounded-2xl text-[11px] uppercase tracking-[0.15em] hover:bg-[#00c765] transition-colors"
+          className="w-full flex items-center gap-3 rounded-2xl border border-[#1C1C1E] bg-[#111214] p-4 text-left hover:border-[#262626] transition-colors"
         >
-          Создать персональную тренировку
+          <div className="h-11 w-11 shrink-0 rounded-full bg-[#1C1C1E] flex items-center justify-center text-[10px] font-black text-[#00E676]">
+            А
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-xs font-bold text-white truncate">Верх тела · сила</p>
+            <p className="text-[9px] font-bold text-[#989AA0] uppercase tracking-wider mt-0.5">
+              Тренер Алексей · 45 мин
+            </p>
+          </div>
+          <ChevronRight className="w-4 h-4 text-[#989AA0] shrink-0" />
         </button>
-
-        {/* От тренера */}
-        <section className="space-y-3">
-          <h2 className="text-[9px] font-bold uppercase tracking-[0.25em] text-[#989AA0]">От тренера</h2>
-          <button
-            type="button"
-            onClick={() => router.push("/client/workouts")}
-            className="w-full flex items-center gap-3 rounded-2xl border border-[#1C1C1E] bg-[#111214] p-4 text-left hover:border-[#262626] transition-colors"
-          >
-            <div className="h-11 w-11 shrink-0 rounded-full bg-[#1C1C1E] flex items-center justify-center text-[10px] font-black text-[#00E676]">
-              А
-            </div>
-            <div className="flex-1 min-w-0">
-              <p className="text-xs font-bold text-white truncate">Верх тела · сила</p>
-              <p className="text-[9px] font-bold text-[#989AA0] uppercase tracking-wider mt-0.5">
-                Тренер Алексей · 45 мин
-              </p>
-            </div>
-            <ChevronRight className="w-4 h-4 text-[#989AA0] shrink-0" />
-          </button>
-        </section>
-      </main>
+      </section>
 
       {/* Модалка: новый показатель */}
       {showConfigModal && (
@@ -589,29 +525,6 @@ export default function ClientDashboard() {
           </div>
         </div>
       )}
-
-      {/* Нижняя навигация */}
-      <nav className="fixed bottom-0 inset-x-0 z-40 border-t border-[#1C1C1E] bg-[#0A0A0A]/95 backdrop-blur-md">
-        <div className="mx-auto max-w-md px-2 h-16 flex items-center justify-between">
-          {NAV.map((item) => {
-            const Icon = item.icon;
-            const active = item.action !== "logout" && pathname === item.href;
-            return (
-              <button
-                key={item.key}
-                type="button"
-                onClick={() => handleNav(item)}
-                className={`flex flex-col items-center gap-1 flex-1 py-1 transition-colors ${
-                  active ? "text-[#00E676]" : "text-[#989AA0] hover:text-white"
-                }`}
-              >
-                <Icon className="w-4 h-4" />
-                <span className="text-[8px] font-bold uppercase tracking-wider">{item.label}</span>
-              </button>
-            );
-          })}
-        </div>
-      </nav>
     </div>
   );
 }
