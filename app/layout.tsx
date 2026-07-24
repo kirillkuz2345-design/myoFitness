@@ -1,5 +1,5 @@
 // app/layout.tsx
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Inter } from "next/font/google";
 import "./globals.css";
 import { Toaster } from "react-hot-toast";
@@ -9,8 +9,27 @@ import SettingsFab from "@/components/ui/layout/SettingsFab"; // Гейтит к
 const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "MyoFitness | Платформа для тренеров",
-  description: "Оперативный контроль активности и результатов клиентов",
+  title: "NAORE Fitness",
+  description: "Оперативный контроль активности и результатов",
+  manifest: "/manifest.webmanifest",
+  applicationName: "NAORE",
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "black-translucent",
+    title: "NAORE",
+  },
+  icons: {
+    icon: "/icon-192.png",
+    apple: "/apple-touch-icon.png",
+  },
+};
+
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 1,
+  viewportFit: "cover", // контент уходит под чёлку/скругления
+  themeColor: "#00E676", // цвет статус-бара в standalone
 };
 
 export default function RootLayout({
