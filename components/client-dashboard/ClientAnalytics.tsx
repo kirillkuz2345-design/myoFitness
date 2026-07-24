@@ -26,7 +26,7 @@ export default function ClientAnalytics() {
 
   // Карта названий и единиц измерения
   const metricConfig: Record<string, { label: string; unit: string; color: string }> = {
-    weight: { label: 'Вес тела', unit: 'кг', color: '#00F5D4' },
+    weight: { label: 'Вес тела', unit: 'кг', color: '#00E676' },
     calories: { label: 'Калораж', unit: 'ккал', color: '#3A86FF' },
     waist: { label: 'Обхват талии', unit: 'см', color: '#FF007F' },
   };
@@ -124,147 +124,151 @@ export default function ClientAnalytics() {
   };
 
   return (
-    <div className="w-full bg-[#1A1A1A] border border-[#262626] rounded-xl p-6 text-white mb-6 animate-fadeIn">
-      <h2 className="text-xl font-bold mb-6 flex items-center gap-2">
-        <Activity className="w-5 h-5 text-[#00F5D4]" />
-        Кастомная аналитика показателей
-      </h2>
+    <div className="space-y-4">
+      <h2 className="text-[9px] font-bold uppercase tracking-[0.25em] text-[#989AA0]">Аналитика показателей</h2>
 
-      {/* Табы переключения типов метрик */}
-      <div className="flex space-x-2 border-b border-[#262626] pb-4 mb-6">
-        {Object.keys(metricConfig).map((type) => (
-          <button
-            key={type}
-            onClick={() => setActiveTab(type)}
-            className={`px-4 py-2 rounded-lg text-xs font-semibold transition-all duration-200 ${
-              activeTab === type
-                ? 'bg-[#0A0A0A] text-[#00F5D4] border border-[#262626]'
-                : 'text-gray-400 hover:text-white bg-transparent'
-            }`}
-          >
-            {metricConfig[type].label}
-          </button>
-        ))}
-      </div>
+      <div className="w-full bg-[#111214] border border-[#1C1C1E] rounded-2xl p-5 text-white">
+        <h3 className="text-sm font-black uppercase tracking-wider mb-5 flex items-center gap-2">
+          <Activity className="w-4 h-4 text-[#00E676]" />
+          Кастомная аналитика
+        </h3>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        {/* Форма добавления нового замера */}
-        <div className="bg-[#0A0A0A] border border-[#262626] rounded-xl p-4 flex flex-col justify-between h-fit">
-          <h3 className="text-sm font-semibold text-gray-300 mb-4 flex items-center gap-1.5">
-            <Plus className="w-4 h-4 text-[#00F5D4]" />
-            Внести новый замер
-          </h3>
-          <form onSubmit={handleAddMetric} className="space-y-4">
-            <div>
-              <label className="block text-[11px] text-gray-500 mb-1">Значение ({metricConfig[activeTab].unit})</label>
-              <input
-                type="number"
-                step="0.1"
-                required
-                placeholder={`Например: ${activeTab === 'weight' ? '75.5' : '2300'}`}
-                value={newValue}
-                onChange={(e) => setNewValue(e.target.value)}
-                className="w-full bg-[#1A1A1A] border border-[#262626] rounded-lg p-2.5 text-sm text-white focus:border-[#00F5D4] focus:outline-none transition-colors"
-              />
-            </div>
-            <div>
-              <label className="block text-[11px] text-gray-500 mb-1">Дата замера</label>
-              <input
-                type="date"
-                required
-                value={newDate}
-                onChange={(e) => setNewDate(e.target.value)}
-                className="w-full bg-[#1A1A1A] border border-[#262626] rounded-lg p-2.5 text-sm text-white focus:border-[#00F5D4] focus:outline-none transition-colors"
-              />
-            </div>
+        {/* Табы переключения типов метрик */}
+        <div className="flex flex-wrap gap-2 border-b border-[#1C1C1E] pb-4 mb-5">
+          {Object.keys(metricConfig).map((type) => (
             <button
-              type="submit"
-              disabled={loading}
-              className="w-full py-2 bg-[#00F5D4] hover:bg-[#00D6B8] disabled:bg-gray-700 text-black font-bold text-xs rounded-lg transition-colors"
+              key={type}
+              onClick={() => setActiveTab(type)}
+              className={`px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-all duration-200 ${
+                activeTab === type
+                  ? 'bg-[#0A0A0A] text-[#00E676] border border-[#1C1C1E]'
+                  : 'text-[#989AA0] hover:text-white bg-transparent'
+              }`}
             >
-              {loading ? 'Сохранение...' : 'Зафиксировать'}
+              {metricConfig[type].label}
             </button>
-          </form>
+          ))}
         </div>
 
-        {/* Интерактивный SVG график прогресса */}
-        <div className="md:col-span-2 bg-[#0A0A0A] border border-[#262626] rounded-xl p-4 flex flex-col justify-between min-h-[220px]">
-          <div className="flex justify-between items-center mb-2">
-            <h3 className="text-sm font-semibold text-gray-300 flex items-center gap-1.5">
-              <TrendingUp className="w-4 h-4 text-[#00F5D4]" />
-              График изменений
-            </h3>
-            {filteredMetrics.length > 0 && (
-              <span className="text-xs font-mono text-[#00F5D4] bg-[#1A1A1A] px-2 py-0.5 border border-[#262626] rounded">
-                Текущий: {filteredMetrics[filteredMetrics.length - 1].value} {metricConfig[activeTab].unit}
-              </span>
-            )}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          {/* Форма добавления нового замера */}
+          <div className="bg-[#0A0A0A] border border-[#1C1C1E] rounded-xl p-4 flex flex-col justify-between h-fit">
+            <h4 className="text-[11px] font-bold uppercase tracking-wider text-[#989AA0] mb-4 flex items-center gap-1.5">
+              <Plus className="w-3.5 h-3.5 text-[#00E676]" />
+              Внести замер
+            </h4>
+            <form onSubmit={handleAddMetric} className="space-y-4">
+              <div>
+                <label className="block text-[10px] text-[#989AA0] mb-1">Значение ({metricConfig[activeTab].unit})</label>
+                <input
+                  type="number"
+                  step="0.1"
+                  required
+                  placeholder={`Например: ${activeTab === 'weight' ? '75.5' : '2300'}`}
+                  value={newValue}
+                  onChange={(e) => setNewValue(e.target.value)}
+                  className="w-full bg-[#111214] border border-[#1C1C1E] rounded-lg p-2.5 text-sm text-white focus:border-[#00E676] focus:outline-none transition-colors"
+                />
+              </div>
+              <div>
+                <label className="block text-[10px] text-[#989AA0] mb-1">Дата замера</label>
+                <input
+                  type="date"
+                  required
+                  value={newDate}
+                  onChange={(e) => setNewDate(e.target.value)}
+                  className="w-full bg-[#111214] border border-[#1C1C1E] rounded-lg p-2.5 text-sm text-white focus:border-[#00E676] focus:outline-none transition-colors"
+                />
+              </div>
+              <button
+                type="submit"
+                disabled={loading}
+                className="w-full py-2.5 bg-[#00E676] hover:bg-[#00c765] disabled:bg-gray-700 text-black font-black text-[10px] uppercase tracking-widest rounded-lg transition-colors"
+              >
+                {loading ? 'Сохранение...' : 'Зафиксировать'}
+              </button>
+            </form>
           </div>
 
-          <div className="flex-1 flex items-center justify-center w-full">
-            {fetching ? (
-              <p className="text-xs text-gray-600">Загрузка данных аналитики...</p>
-            ) : filteredMetrics.length >= 2 ? (
-              <div className="w-full h-full pt-4">
-                <svg viewBox="0 0 500 150" className="w-full h-[140px] overflow-visible">
-                  {/* Плавная линия графика */}
-                  <path
-                    d={generateSvgPath()}
-                    fill="none"
-                    stroke={metricConfig[activeTab].color}
-                    strokeWidth="3"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    className="drop-shadow-[0_2px_8px_rgba(0,245,212,0.4)]"
-                  />
-                  {/* Точки на графике */}
-                  {filteredMetrics.map((m, idx) => {
-                    const width = 500;
-                    const height = 150;
-                    const padding = 20;
-                    const values = filteredMetrics.map((v) => v.value);
-                    const minVal = Math.min(...values) * 0.99;
-                    const maxVal = Math.max(...values) * 1.01;
-                    const valRange = maxVal - minVal || 1;
+          {/* Интерактивный SVG график прогресса */}
+          <div className="md:col-span-2 bg-[#0A0A0A] border border-[#1C1C1E] rounded-xl p-4 flex flex-col justify-between min-h-[220px]">
+            <div className="flex justify-between items-center mb-2">
+              <h4 className="text-[11px] font-bold uppercase tracking-wider text-[#989AA0] flex items-center gap-1.5">
+                <TrendingUp className="w-3.5 h-3.5 text-[#00E676]" />
+                График изменений
+              </h4>
+              {filteredMetrics.length > 0 && (
+                <span className="text-[10px] font-mono text-[#00E676] bg-[#111214] px-2 py-0.5 border border-[#1C1C1E] rounded">
+                  Текущий: {filteredMetrics[filteredMetrics.length - 1].value} {metricConfig[activeTab].unit}
+                </span>
+              )}
+            </div>
 
-                    const cx = padding + (idx / (filteredMetrics.length - 1)) * (width - padding * 2);
-                    const cy = height - padding - ((m.value - minVal) / valRange) * (height - padding * 2);
+            <div className="flex-1 flex items-center justify-center w-full">
+              {fetching ? (
+                <p className="text-xs text-[#989AA0]">Загрузка данных аналитики...</p>
+              ) : filteredMetrics.length >= 2 ? (
+                <div className="w-full h-full pt-4">
+                  <svg viewBox="0 0 500 150" className="w-full h-[140px] overflow-visible">
+                    {/* Плавная линия графика */}
+                    <path
+                      d={generateSvgPath()}
+                      fill="none"
+                      stroke={metricConfig[activeTab].color}
+                      strokeWidth="3"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      className="drop-shadow-[0_2px_8px_rgba(0,230,118,0.4)]"
+                    />
+                    {/* Точки на графике */}
+                    {filteredMetrics.map((m, idx) => {
+                      const width = 500;
+                      const height = 150;
+                      const padding = 20;
+                      const values = filteredMetrics.map((v) => v.value);
+                      const minVal = Math.min(...values) * 0.99;
+                      const maxVal = Math.max(...values) * 1.01;
+                      const valRange = maxVal - minVal || 1;
 
-                    return (
-                      <g key={m.id} className="group/point">
-                        <circle
-                          cx={cx}
-                          cy={cy}
-                          r="4"
-                          fill="#0A0A0A"
-                          stroke={metricConfig[activeTab].color}
-                          strokeWidth="2"
-                        />
-                        {/* Тултип при ховере на точку */}
-                        <text
-                          x={cx}
-                          y={cy - 10}
-                          textAnchor="middle"
-                          className="hidden group-hover/point:block fill-white text-[10px] font-mono bg-black"
-                        >
-                          {m.value}
-                        </text>
-                      </g>
-                    );
-                  })}
-                </svg>
-                {/* Подписи дат (Первая и Последняя по краям) */}
-                <div className="flex justify-between items-center text-[10px] text-gray-600 font-mono px-2 mt-1">
-                  <span>{filteredMetrics[0].recorded_at}</span>
-                  <span>{filteredMetrics[filteredMetrics.length - 1].recorded_at}</span>
+                      const cx = padding + (idx / (filteredMetrics.length - 1)) * (width - padding * 2);
+                      const cy = height - padding - ((m.value - minVal) / valRange) * (height - padding * 2);
+
+                      return (
+                        <g key={m.id} className="group/point">
+                          <circle
+                            cx={cx}
+                            cy={cy}
+                            r="4"
+                            fill="#0A0A0A"
+                            stroke={metricConfig[activeTab].color}
+                            strokeWidth="2"
+                          />
+                          {/* Тултип при ховере на точку */}
+                          <text
+                            x={cx}
+                            y={cy - 10}
+                            textAnchor="middle"
+                            className="hidden group-hover/point:block fill-white text-[10px] font-mono bg-black"
+                          >
+                            {m.value}
+                          </text>
+                        </g>
+                      );
+                    })}
+                  </svg>
+                  {/* Подписи дат (Первая и Последняя по краям) */}
+                  <div className="flex justify-between items-center text-[10px] text-[#989AA0] font-mono px-2 mt-1">
+                    <span>{filteredMetrics[0].recorded_at}</span>
+                    <span>{filteredMetrics[filteredMetrics.length - 1].recorded_at}</span>
+                  </div>
                 </div>
-              </div>
-            ) : (
-              <div className="text-center py-8 text-xs text-gray-600 border border-dashed border-[#262626] rounded-xl w-full flex flex-col items-center justify-center p-4">
-                <Calendar className="w-5 h-5 mb-1 text-gray-700" />
-                <span>Недостаточно данных для графика. Внесите минимум 2 замера.</span>
-              </div>
-            )}
+              ) : (
+                <div className="text-center py-8 text-xs text-[#989AA0] border border-dashed border-[#1C1C1E] rounded-xl w-full flex flex-col items-center justify-center p-4">
+                  <Calendar className="w-5 h-5 mb-1 text-zinc-700" />
+                  <span>Недостаточно данных для графика. Внесите минимум 2 замера.</span>
+                </div>
+              )}
+            </div>
           </div>
         </div>
       </div>
