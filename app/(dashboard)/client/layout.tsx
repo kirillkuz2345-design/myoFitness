@@ -3,11 +3,13 @@
 
 import React from "react";
 import { useRouter, usePathname } from "next/navigation";
+import { useAuth } from "@/providers/AuthProvider";
 import { supabase } from "@/lib/supabase";
 import {
   Settings,
   LayoutGrid,
   Dumbbell,
+  MessageSquare,
   BarChart3,
   User,
   LogOut,
@@ -22,20 +24,25 @@ interface NavItem {
   action?: "logout";
 }
 
-const NAV: NavItem[] = [
-  { key: "cabinet", label: "Кабинет", icon: LayoutGrid, href: "/client" },
-  { key: "workouts", label: "Тренировки", icon: Dumbbell, href: "/client/workouts" },
-  { key: "analytics", label: "Аналитика", icon: BarChart3, href: "/client/analytics" },
-  { key: "profile", label: "Профиль", icon: User, href: "/client/profile" },
-  { key: "logout", label: "Выход", icon: LogOut, href: "/login", action: "logout" },
-];
-
 export default function ClientRootLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
+  const { user } = useAuth();
+
+  const chatHref = user?.id ? `/chat/${user.id}` : "/client";
+
+  const nav: NavItem[] = [
+    { key: "cabinet", label: "Кабинет", icon: LayoutGrid, href: "/client" },
+    { key: "workouts", label: "Тренировки", icon: Dumbbell, href: "/client/workouts" },
+    { key: "chat", label: "Чат", icon: MessageSquare, href: chatHref },
+    { key: "analytics", label: "Аналитика", icon: BarChart3, href: "/client/analytics" },
+    { key: "profile", label: "Профиль", icon: User, href: "/client/profile" },
+    { key: "logout", label: "Выход", icon: LogOut, href: "/login", action: "logout" },
+  ];
 
   const isActive = (item: NavItem): boolean => {
     if (item.action === "logout") return false;
+    if (item.key === "chat") return pathname.startsWith("/chat");
     if (item.href === "/client") return pathname === "/client";
     return pathname.startsWith(item.href);
   };
@@ -73,8 +80,8 @@ export default function ClientRootLayout({ children }: { children: React.ReactNo
 
       {/* Нижняя навигация */}
       <nav className="fixed bottom-0 inset-x-0 z-40 border-t border-[#1C1C1E] bg-[#0A0A0A]/95 backdrop-blur-md">
-        <div className="mx-auto max-w-md px-2 h-16 flex items-center justify-between">
-          {NAV.map((item) => {
+        <div className="mx-auto max-w-md px-1 h-16 flex items-center justify-between">
+          {nav.map((item) => {
             const Icon = item.icon;
             const active = isActive(item);
             return (
