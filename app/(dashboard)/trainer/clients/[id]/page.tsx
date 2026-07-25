@@ -35,6 +35,8 @@ interface DraftExercise {
   sets: string;
   reps: string;
   weight: string;
+  trainerComment: string;
+  clientNote: string;
 }
 
 interface Props {
@@ -190,7 +192,7 @@ export default function TrainerClientView({ params }: Props) {
   const addDraft = () => {
     setCwExercises((prev) => [
       ...prev,
-      { tempId: crypto.randomUUID(), name: '', sets: '', reps: '', weight: '' },
+      { tempId: crypto.randomUUID(), name: '', sets: '', reps: '', weight: '', trainerComment: '', clientNote: '' },
     ]);
   };
 
@@ -248,6 +250,8 @@ export default function TrainerClientView({ params }: Props) {
           sets: Number(d.sets) || 0,
           reps: d.reps.trim(),
           weight: d.weight.trim() === '' ? null : Number(d.weight),
+          trainer_comment: d.trainerComment.trim() || null,
+          client_note: d.clientNote.trim() || null,
         }));
 
       if (rows.length > 0) {
@@ -523,6 +527,18 @@ export default function TrainerClientView({ params }: Props) {
                         className="bg-[#111214] border border-[#1C1C1E] rounded px-2 py-1.5 text-[11px] text-center text-white outline-none focus:border-[#00E676]"
                       />
                     </div>
+                    <input
+                      value={d.trainerComment}
+                      onChange={(e) => updateDraft(d.tempId, 'trainerComment', e.target.value)}
+                      placeholder="Комментарий тренера"
+                      className="w-full bg-[#111214] border border-[#1C1C1E] rounded px-2 py-1.5 text-[11px] text-white outline-none focus:border-[#00E676]"
+                    />
+                    <input
+                      value={d.clientNote}
+                      onChange={(e) => updateDraft(d.tempId, 'clientNote', e.target.value)}
+                      placeholder="Комментарий подопечного"
+                      className="w-full bg-[#111214] border border-[#1C1C1E] rounded px-2 py-1.5 text-[11px] text-white outline-none focus:border-[#00E676]"
+                    />
                   </div>
                 ))}
               </div>

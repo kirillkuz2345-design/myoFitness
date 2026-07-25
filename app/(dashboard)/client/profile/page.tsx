@@ -2,14 +2,13 @@
 
 import React, { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase"; // Используем наш единый клиент
-import { User, Shield, Mail, Key } from "lucide-react";
+import { User, Shield, Mail } from "lucide-react";
 
 interface UserProfile {
   id: string;
   name: string;
   email: string;
   role: "client" | "trainer"; // Каноничный lowercase, как в БД
-  invite_code?: string;
 }
 
 export default function ProfilePage() {
@@ -21,28 +20,26 @@ export default function ProfilePage() {
 
     async function fetchProfileData() {
       try {
-        // 1. Получаем текущего юзера из сессии auth
+        // 1. Текущий юзер из сессии auth (email живёт здесь, не в profiles)
         const { data: { user } } = await supabase.auth.getUser();
         if (!user) return;
 
-        // 2. Тянем метаданные из таблицы profiles (включая инвайт-код)
+        // 2. Метаданные профиля. В таблице profiles: id, full_name, role.
         const { data, error } = await supabase
           .from("profiles")
-          .select("id, name, email, role, invite_code")
+          .select("id, full_name, role")
           .eq("id", user.id)
           .single();
 
         if (error) throw error;
         if (data && !cancelled) {
-          // Нормализуем роль к lowercase — в БД регистр может быть непостоянным
           const normalizedRole =
             String(data.role).toLowerCase() === "trainer" ? "trainer" : "client";
           setProfile({
             id: data.id,
-            name: data.name,
-            email: data.email,
+            name: data.full_name ?? "",
+            email: user.email ?? "",
             role: normalizedRole,
-            invite_code: data.invite_code ?? undefined,
           });
         }
       } catch (err) {
@@ -92,7 +89,7 @@ export default function ProfilePage() {
             <span className="text-[#989AA0] flex items-center gap-1.5">
               <Mail className="w-3.5 h-3.5 text-[#989AA0]" /> Email:
             </span>
-            <span className="text-gray-300 font-mono">{profile?.email}</span>
+            <span className="text-gray-300 font-mono">{profile?.email || "—"}</span>
           </div>
 
           <div className="flex justify-between items-center bg-[#0A0A0A] p-3 border border-[#1C1C1E] rounded-lg">
@@ -109,18 +106,6 @@ export default function ProfilePage() {
               {profile?.role === "trainer" ? "Наставник" : "Спортсмен"}
             </span>
           </div>
-
-          {/* Если зашел тренер — выводим его мастер-код */}
-          {profile?.role === "trainer" && profile.invite_code && (
-            <div className="bg-[#1a140a] border border-[#423116] p-3 rounded-lg flex justify-between items-center">
-              <span className="text-[#c2a272] font-semibold flex items-center gap-1.5">
-                <Key className="w-3.5 h-3.5" /> Ваш инвайт-код:
-              </span>
-              <span className="font-mono text-white bg-[#0A0A0A] px-2 py-1 border border-[#1C1C1E] rounded text-sm font-bold tracking-widest selection:bg-[#00E676]">
-                {profile.invite_code}
-              </span>
-            </div>
-          )}
         </div>
       </div>
     </div>
