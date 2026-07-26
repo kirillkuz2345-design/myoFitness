@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { useAuth } from "@/providers/AuthProvider";
 import { supabase } from "@/lib/supabase";
 import toast from "react-hot-toast";
-import { Users, Sliders, UserPlus, X, Link2 } from "lucide-react";
+import { Users, Sliders, UserPlus, X, Link2, Copy } from "lucide-react";
 import { Card, Button, Input } from "@/components/ui/myo";
 
 interface ClientProfile {
@@ -109,6 +109,17 @@ export default function TrainerClientsListPage() {
     }
   };
 
+  const copyInvite = async () => {
+    if (!user?.id) return;
+    const link = `${window.location.origin}/invite/${user.id}`;
+    try {
+      await navigator.clipboard.writeText(link);
+      toast.success("Ссылка скопирована");
+    } catch {
+      toast.error("Не удалось скопировать");
+    }
+  };
+
   const filteredClients = clients.filter((c) =>
     c.full_name?.toLowerCase().includes(searchQuery.toLowerCase())
   );
@@ -196,8 +207,28 @@ export default function TrainerClientsListPage() {
                 <X className="w-4 h-4 text-[#989AA0] hover:text-white" />
               </button>
             </div>
+            {/* Персональная ссылка-приглашение */}
+            <div className="rounded-xl border border-[#1C1C1E] bg-[#0A0A0A] p-3 space-y-2">
+              <span className="block text-[8px] font-bold uppercase tracking-[0.2em] text-[#989AA0]">
+                Персональная ссылка
+              </span>
+              <div className="flex items-center gap-2">
+                <span className="flex-1 text-[10px] text-white font-mono truncate">
+                  {typeof window !== "undefined" && user?.id ? `${window.location.origin}/invite/${user.id}` : ""}
+                </span>
+                <button
+                  type="button"
+                  onClick={copyInvite}
+                  className="shrink-0 flex items-center gap-1 text-[9px] font-black uppercase tracking-wider text-[#00E676] hover:text-[#00c765]"
+                >
+                  <Copy className="w-3.5 h-3.5" /> Копир.
+                </button>
+              </div>
+              <p className="text-[8px] text-zinc-600">Отправь атлету — по ней он привяжется к тебе.</p>
+            </div>
+
             <p className="text-[9px] text-[#989AA0] uppercase tracking-wider">
-              Непривязанные атлеты — тап, чтобы взять под себя
+              Или выбери из непривязанных — тап, чтобы взять под себя
             </p>
 
             <div className="flex-1 overflow-y-auto space-y-2">
