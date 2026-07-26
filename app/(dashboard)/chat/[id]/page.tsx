@@ -98,7 +98,10 @@ export default function ChatRoom({ params }: { params: Promise<{ id: string }> }
   return (
     <div className="min-h-screen bg-[#0A0A0A] text-[#E1E3E6] font-mono antialiased flex flex-col">
       {/* Шапка */}
-      <header className="sticky top-0 z-40 border-b border-[#1C1C1E] bg-[#0A0A0A]/90 backdrop-blur-md">
+      <header
+        className="sticky top-0 z-40 border-b border-[#1C1C1E] bg-[#0A0A0A]/90 backdrop-blur-md"
+        style={{ paddingTop: "env(safe-area-inset-top)" }}
+      >
         <div className="mx-auto max-w-2xl px-4 h-16 flex items-center gap-3">
           <button
             type="button"
@@ -142,7 +145,10 @@ export default function ChatRoom({ params }: { params: Promise<{ id: string }> }
       </div>
 
       {/* Ввод */}
-      <div className="sticky bottom-0 border-t border-[#1C1C1E] bg-[#0A0A0A]/95 backdrop-blur-md">
+      <div
+        className="sticky bottom-0 border-t border-[#1C1C1E] bg-[#0A0A0A]/95 backdrop-blur-md"
+        style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
+      >
         <form onSubmit={sendMessage} className="mx-auto max-w-2xl px-4 py-3 flex gap-2">
           <input
             type="text"

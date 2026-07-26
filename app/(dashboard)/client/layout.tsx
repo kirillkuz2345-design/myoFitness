@@ -59,7 +59,10 @@ export default function ClientRootLayout({ children }: { children: React.ReactNo
   return (
     <div className="min-h-screen bg-[#0A0A0A] text-[#E1E3E6] font-mono antialiased">
       {/* Шапка NAORE */}
-      <header className="sticky top-0 z-40 border-b border-[#1C1C1E] bg-[#0A0A0A]/90 backdrop-blur-md">
+      <header
+        className="sticky top-0 z-40 border-b border-[#1C1C1E] bg-[#0A0A0A]/90 backdrop-blur-md"
+        style={{ paddingTop: "env(safe-area-inset-top)" }}
+      >
         <div className="mx-auto max-w-md px-5 h-16 flex items-center justify-between">
           <h1 className="text-sm font-black uppercase tracking-[0.2em] text-white">
             NAORE <span className="text-[#00E676]">FITNESS</span>
@@ -79,7 +82,10 @@ export default function ClientRootLayout({ children }: { children: React.ReactNo
       <main className="mx-auto max-w-md px-5 py-6 pb-28">{children}</main>
 
       {/* Нижняя навигация */}
-      <nav className="fixed bottom-0 inset-x-0 z-40 border-t border-[#1C1C1E] bg-[#0A0A0A]/95 backdrop-blur-md">
+      <nav
+        className="fixed bottom-0 inset-x-0 z-40 border-t border-[#1C1C1E] bg-[#0A0A0A]/95 backdrop-blur-md"
+        style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
+      >
         <div className="mx-auto max-w-md px-1 h-16 flex items-center justify-between">
           {nav.map((item) => {
             const Icon = item.icon;
