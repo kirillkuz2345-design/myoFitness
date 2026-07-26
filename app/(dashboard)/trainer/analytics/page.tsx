@@ -5,7 +5,8 @@ import React, { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/providers/AuthProvider";
 import { supabase } from "@/lib/supabase";
-import { Plus, X, Users, Dumbbell, Activity, TrendingUp } from "lucide-react";
+import toast from "react-hot-toast";
+import { Plus, X, Users, Dumbbell, Activity, TrendingUp, Copy, Link2 } from "lucide-react";
 
 type DisplayType = "ring" | "trend";
 
@@ -250,6 +251,16 @@ export default function TrainerAnalyticsPage() {
     }
   };
 
+  const copyInvite = async () => {
+    if (!user?.id) return;
+    try {
+      await navigator.clipboard.writeText(`${window.location.origin}/invite/${user.id}`);
+      toast.success("Ссылка скопирована");
+    } catch {
+      toast.error("Не удалось скопировать");
+    }
+  };
+
   const avgPerClient = summary.clients > 0 ? (summary.workouts30 / summary.clients).toFixed(1) : "0";
 
   const summaryCards = [
@@ -368,6 +379,29 @@ export default function TrainerAnalyticsPage() {
             })}
           </div>
         )}
+      </section>
+
+      {/* Персональная ссылка-приглашение */}
+      <section className="space-y-3">
+        <h2 className="text-[9px] font-bold uppercase tracking-[0.25em] text-[#989AA0]">Ссылка-приглашение</h2>
+        <div className="rounded-2xl border border-[#1C1C1E] bg-[#111214] p-4 space-y-2">
+          <div className="flex items-center gap-2">
+            <Link2 className="w-3.5 h-3.5 text-[#00E676] shrink-0" />
+            <span className="flex-1 text-[10px] text-white font-mono truncate">
+              {typeof window !== "undefined" && user?.id ? `${window.location.origin}/invite/${user.id}` : ""}
+            </span>
+            <button
+              type="button"
+              onClick={copyInvite}
+              className="shrink-0 flex items-center gap-1 text-[9px] font-black uppercase tracking-wider text-[#00E676] hover:text-[#00c765]"
+            >
+              <Copy className="w-3.5 h-3.5" /> Копир.
+            </button>
+          </div>
+          <p className="text-[8px] text-zinc-600 uppercase tracking-wider">
+            Отправь атлету — по ней он привяжется к тебе.
+          </p>
+        </div>
       </section>
 
       {/* Модалка: новый показатель */}
