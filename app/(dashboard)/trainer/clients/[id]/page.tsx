@@ -61,12 +61,68 @@ export default function TrainerClientView({ params }: Props) {
   const [cwRec, setCwRec] = useState('');
   const [cwExercises, setCwExercises] = useState<DraftExercise[]>([]);
 
+  // Анкета атлета
+  const [info, setInfo] = useState({ full_name: '', goal: '', height: '', weight: '', birth_date: '', injuries: '' });
+  const [infoSaving, setInfoSaving] = useState(false);
+
   // Role-gate: только тренер может открывать разбор чужих тренировок.
   useEffect(() => {
     if (!authLoading && (!user || profile?.role?.toUpperCase() !== 'TRAINER')) {
       router.replace('/login');
     }
   }, [authLoading, user, profile, router]);
+
+  // Анкета атлета — загрузка (setState в callback, как требует правило)
+  useEffect(() => {
+    let cancelled = false;
+    supabase
+      .from('profiles')
+      .select('full_name, goal, height, weight, birth_date, injuries')
+      .eq('id', clientId)
+      .single()
+      .then(({ data, error }) => {
+        if (cancelled || error || !data) return;
+        setInfo({
+          full_name: data.full_name ?? '',
+          goal: data.goal ?? '',
+          height: data.height != null ? String(data.height) : '',
+          weight: data.weight != null ? String(data.weight) : '',
+          birth_date: data.birth_date ?? '',
+          injuries: data.injuries ?? '',
+        });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [clientId]);
+
+  const updInfo = (field: keyof typeof info, value: string) => {
+    setInfo((prev) => ({ ...prev, [field]: value }));
+  };
+
+  const saveInfo = async () => {
+    setInfoSaving(true);
+    try {
+      const { error } = await supabase
+        .from('profiles')
+        .update({
+          full_name: info.full_name.trim() || null,
+          goal: info.goal.trim() || null,
+          height: info.height.trim() === '' ? null : Number(info.height),
+          weight: info.weight.trim() === '' ? null : Number(info.weight),
+          birth_date: info.birth_date || null,
+          injuries: info.injuries.trim() || null,
+        })
+        .eq('id', clientId);
+      if (error) throw error;
+      toast.success('Анкета сохранена');
+    } catch (err) {
+      console.error('Ошибка сохранения анкеты:', err);
+      toast.error('Не удалось сохранить анкету');
+    } finally {
+      setInfoSaving(false);
+    }
+  };
 
   // Загрузка тренировок: только возвращает данные (setState — в callback эффекта).
   const loadClientWorkouts = useCallback(async (): Promise<Workout[] | null> => {
@@ -314,6 +370,64 @@ export default function TrainerClientView({ params }: Props) {
             <Plus className="w-3.5 h-3.5" /> Тренировка
           </button>
         </div>
+      </div>
+
+      {/* Анкета атлета */}
+      <div className="rounded-2xl border border-[#1C1C1E] bg-[#111214] p-4 space-y-3">
+        <h3 className="text-[10px] font-black uppercase tracking-widest text-white flex items-center gap-2">
+          <ClipboardList className="w-3.5 h-3.5 text-[#00E676]" /> Анкета атлета
+        </h3>
+
+        <div className="space-y-1.5">
+          <label className="block text-[8px] font-bold uppercase tracking-[0.2em] text-[#989AA0]">Имя</label>
+          <input value={info.full_name} onChange={(e) => updInfo('full_name', e.target.value)} className={inputCls} />
+        </div>
+
+        <div className="space-y-1.5">
+          <label className="block text-[8px] font-bold uppercase tracking-[0.2em] text-[#989AA0]">Запрос / цель</label>
+          <textarea
+            value={info.goal}
+            onChange={(e) => updInfo('goal', e.target.value)}
+            rows={2}
+            placeholder="Похудеть, набрать массу, реабилитация…"
+            className={`${inputCls} resize-none`}
+          />
+        </div>
+
+        <div className="grid grid-cols-3 gap-2">
+          <div className="space-y-1.5">
+            <label className="block text-[8px] font-bold uppercase tracking-[0.2em] text-[#989AA0]">Рост, см</label>
+            <input value={info.height} onChange={(e) => updInfo('height', e.target.value)} inputMode="decimal" className={inputCls} />
+          </div>
+          <div className="space-y-1.5">
+            <label className="block text-[8px] font-bold uppercase tracking-[0.2em] text-[#989AA0]">Вес, кг</label>
+            <input value={info.weight} onChange={(e) => updInfo('weight', e.target.value)} inputMode="decimal" className={inputCls} />
+          </div>
+          <div className="space-y-1.5">
+            <label className="block text-[8px] font-bold uppercase tracking-[0.2em] text-[#989AA0]">Д. рождения</label>
+            <input type="date" value={info.birth_date} onChange={(e) => updInfo('birth_date', e.target.value)} className={inputCls} />
+          </div>
+        </div>
+
+        <div className="space-y-1.5">
+          <label className="block text-[8px] font-bold uppercase tracking-[0.2em] text-[#989AA0]">Травмы / ограничения</label>
+          <textarea
+            value={info.injuries}
+            onChange={(e) => updInfo('injuries', e.target.value)}
+            rows={2}
+            placeholder="Колено, спина, аллергии…"
+            className={`${inputCls} resize-none`}
+          />
+        </div>
+
+        <button
+          type="button"
+          onClick={saveInfo}
+          disabled={infoSaving}
+          className="w-full bg-[#00E676] text-black font-black py-2.5 rounded-xl text-[10px] uppercase tracking-widest disabled:opacity-50 hover:bg-[#00c765] transition-colors"
+        >
+          {infoSaving ? 'Сохранение...' : 'Сохранить анкету'}
+        </button>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
