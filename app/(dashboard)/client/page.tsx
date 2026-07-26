@@ -30,6 +30,8 @@ interface MetricEntry {
 interface DashboardData {
   configs: MetricConfig[];
   metrics: MetricEntry[];
+  hasTrainer: boolean;
+  trainerName: string | null;
 }
 
 const PALETTE = ["#00E676", "#3A86FF", "#8B5CF6", "#FF007F", "#FFB020"];
@@ -58,9 +60,21 @@ async function loadDashboard(): Promise<DashboardData | null> {
     if (configsRes.error) throw configsRes.error;
     if (metricsRes.error) throw metricsRes.error;
 
+    // Назначенный тренер (для блока «От тренера»)
+    let hasTrainer = false;
+    let trainerName: string | null = null;
+    const { data: me } = await supabase.from("profiles").select("trainer_id").eq("id", user.id).single();
+    if (me?.trainer_id) {
+      hasTrainer = true;
+      const { data: tr } = await supabase.from("profiles").select("full_name").eq("id", me.trainer_id).single();
+      trainerName = tr?.full_name ?? null;
+    }
+
     return {
       configs: (configsRes.data ?? []) as MetricConfig[],
       metrics: (metricsRes.data ?? []) as MetricEntry[],
+      hasTrainer,
+      trainerName,
     };
   } catch (err) {
     console.error("Ошибка загрузки дашборда:", err);
@@ -129,6 +143,8 @@ export default function ClientDashboard() {
   const [configs, setConfigs] = useState<MetricConfig[]>([]);
   const [metrics, setMetrics] = useState<MetricEntry[]>([]);
   const [fetching, setFetching] = useState<boolean>(true);
+  const [hasTrainer, setHasTrainer] = useState(false);
+  const [trainerName, setTrainerName] = useState<string | null>(null);
 
   // Модалка нового показателя
   const [showConfigModal, setShowConfigModal] = useState(false);
@@ -152,6 +168,8 @@ export default function ClientDashboard() {
       if (data) {
         setConfigs(data.configs);
         setMetrics(data.metrics);
+        setHasTrainer(data.hasTrainer);
+        setTrainerName(data.trainerName);
       }
       setFetching(false);
     });
@@ -165,6 +183,8 @@ export default function ClientDashboard() {
     if (data) {
       setConfigs(data.configs);
       setMetrics(data.metrics);
+      setHasTrainer(data.hasTrainer);
+      setTrainerName(data.trainerName);
     }
   };
 
@@ -352,25 +372,31 @@ export default function ClientDashboard() {
         Создать персональную тренировку
       </button>
 
-      {/* От тренера */}
+      {/* Ваш тренер */}
       <section className="space-y-3">
-        <h2 className="text-[9px] font-bold uppercase tracking-[0.25em] text-[#989AA0]">От тренера</h2>
-        <button
-          type="button"
-          onClick={() => router.push("/client/workouts")}
-          className="w-full flex items-center gap-3 rounded-2xl border border-[#1C1C1E] bg-[#111214] p-4 text-left hover:border-[#262626] transition-colors"
-        >
-          <div className="h-11 w-11 shrink-0 rounded-full bg-[#1C1C1E] flex items-center justify-center text-[10px] font-black text-[#00E676]">
-            А
-          </div>
-          <div className="flex-1 min-w-0">
-            <p className="text-xs font-bold text-white truncate">Верх тела · сила</p>
-            <p className="text-[9px] font-bold text-[#989AA0] uppercase tracking-wider mt-0.5">
-              Тренер Алексей · 45 мин
+        <h2 className="text-[9px] font-bold uppercase tracking-[0.25em] text-[#989AA0]">Ваш тренер</h2>
+        {hasTrainer ? (
+          <button
+            type="button"
+            onClick={() => user?.id && router.push(`/chat/${user.id}`)}
+            className="w-full flex items-center gap-3 rounded-2xl border border-[#1C1C1E] bg-[#111214] p-4 text-left hover:border-[#262626] transition-colors"
+          >
+            <div className="h-11 w-11 shrink-0 rounded-full bg-[#1C1C1E] flex items-center justify-center text-[10px] font-black text-[#00E676]">
+              {(trainerName?.[0] ?? "Т").toUpperCase()}
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-xs font-bold text-white truncate">{trainerName || "Тренер назначен"}</p>
+              <p className="text-[9px] font-bold text-[#989AA0] uppercase tracking-wider mt-0.5">Открыть чат</p>
+            </div>
+            <ChevronRight className="w-4 h-4 text-[#989AA0] shrink-0" />
+          </button>
+        ) : (
+          <div className="w-full rounded-2xl border border-dashed border-[#262626] bg-[#111214]/40 p-4 text-center">
+            <p className="text-[10px] text-zinc-500 uppercase tracking-wider font-bold">
+              Тренер не назначен.<br />Привяжитесь по ссылке-приглашению от тренера.
             </p>
           </div>
-          <ChevronRight className="w-4 h-4 text-[#989AA0] shrink-0" />
-        </button>
+        )}
       </section>
 
       {/* Модалка: новый показатель */}

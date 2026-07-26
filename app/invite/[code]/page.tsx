@@ -22,7 +22,15 @@ export default function InvitePage({ params }: { params: Promise<{ code: string 
     let cancelled = false;
 
     async function bind(): Promise<Status> {
-      if (!user) return "need-login";
+      if (!user) {
+        // Сохраняем код, чтобы привязать после входа/регистрации (см. app/page.tsx)
+        try {
+          localStorage.setItem("naore_pending_trainer", code);
+        } catch {
+          /* localStorage недоступен — не критично */
+        }
+        return "need-login";
+      }
       if (profile?.role?.toUpperCase() === "TRAINER") return "trainer";
       try {
         const { error } = await supabase

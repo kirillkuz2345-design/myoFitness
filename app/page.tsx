@@ -11,30 +11,56 @@ export default function RootPage() {
   const router = useRouter();
 
   useEffect(() => {
-    // 1. Если загрузка завершилась, а сессии нет — на логин
-    if (!loading && !user) {
+    if (loading) return;
+
+    // 1. Нет сессии — на логин (код приглашения уже сохранён на /invite)
+    if (!user) {
       router.replace("/login");
       return;
     }
 
-    // 2. Если сессия есть, загрузка завершена, но профиль пустой (баг триггера/БД)
-    if (!loading && user && !profile) {
-      console.warn("Сессия найдена, но профиль в таблице profiles отсутствует.");
-      // Вместо бесконечного лоадера отправляем пользователя в кабинет атлета
-      router.replace("/client");
-      return;
-    }
+    const userRole = profile?.role?.toUpperCase();
 
-    // 3. Если профиль успешно загружен
-    if (!loading && profile) {
-      const userRole = profile.role?.toUpperCase();
-
-      if (userRole === "TRAINER") {
-        router.replace("/trainer/clients");
-      } else {
-        router.replace("/client");
+    // 2. Применяем отложенную привязку по инвайт-ссылке (после входа/регистрации).
+    //    Тренера не привязываем.
+    async function applyPendingAndRoute() {
+      let pending: string | null = null;
+      try {
+        pending = localStorage.getItem("naore_pending_trainer");
+      } catch {
+        pending = null;
       }
+
+      if (pending && userRole !== "TRAINER" && user) {
+        try {
+          const { data: updated, error } = await supabase
+            .from("profiles")
+            .update({ trainer_id: pending })
+            .eq("id", user.id)
+            .select("id");
+          // Чистим код только если апдейт реально прошёл (профиль уже существует)
+          if (!error && updated && updated.length > 0) {
+            try {
+              localStorage.removeItem("naore_pending_trainer");
+            } catch {
+              /* ignore */
+            }
+          }
+        } catch (err) {
+          console.error("Ошибка привязки по инвайту:", err);
+        }
+      }
+
+      if (!profile) {
+        console.warn("Сессия найдена, но профиль в таблице profiles отсутствует.");
+        router.replace("/client");
+        return;
+      }
+      if (userRole === "TRAINER") router.replace("/trainer/clients");
+      else router.replace("/client");
     }
+
+    applyPendingAndRoute();
   }, [user, profile, loading, router]);
 
   const handleForceLogout = async () => {
