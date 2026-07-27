@@ -93,18 +93,28 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (isMounted) setLoading(false);
     }, 2500);
 
-    // onAuthStateChange сразу отдаёт INITIAL_SESSION с текущей сессией (или null),
-    // поэтому отдельный getSession() не нужен — это убирает двойную загрузку профиля.
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+    // onAuthStateChange сразу отдаёт INITIAL_SESSION с текущей сессией (или null).
+    //
+    // ВАЖНО: колбэк НЕ async и внутри него НЕ await'им supabase-запросы.
+    // gotrue-js выполняет колбэк, удерживая auth-lock; любой запрос к БД внутри
+    // (ему нужен токен → getSession → тот же лок) даёт дедлок — signUp/getSession
+    // виснут навсегда, хотя сеть отвечает 200. Поэтому загрузку профиля выносим
+    // через setTimeout(0): к этому моменту лок уже освобождён.
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       if (!isMounted) return;
 
       if (event === "SIGNED_OUT") {
         setUser(null);
         setProfile(null);
       } else if (session?.user) {
-        setUser(session.user);
-        const p = await loadProfileData(session.user.id);
-        if (isMounted) setProfile(p);
+        const u = session.user;
+        setUser(u);
+        setTimeout(() => {
+          if (!isMounted) return;
+          loadProfileData(u.id).then((p) => {
+            if (isMounted) setProfile(p);
+          });
+        }, 0);
       } else {
         setUser(null);
         setProfile(null);

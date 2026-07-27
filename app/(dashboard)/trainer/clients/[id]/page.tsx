@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, use } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/providers/AuthProvider';
-import { ArrowLeft, Save, Plus, X, Trash2, ClipboardList, MessageSquare } from 'lucide-react';
+import { ArrowLeft, Save, Plus, X, Trash2, ClipboardList } from 'lucide-react';
 import Link from 'next/link';
 import toast from 'react-hot-toast';
 import type {
@@ -354,22 +354,13 @@ export default function TrainerClientView({ params }: Props) {
         >
           <ArrowLeft className="w-3.5 h-3.5" /> К списку атлетов
         </Link>
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={() => router.push(`/chat/${clientId}`)}
-            className="flex items-center gap-1 text-[10px] font-black uppercase tracking-wider border border-[#1C1C1E] text-[#989AA0] hover:text-white px-3 py-1.5 rounded-lg transition-colors"
-          >
-            <MessageSquare className="w-3.5 h-3.5" /> Чат
-          </button>
-          <button
-            type="button"
-            onClick={() => setShowCreate(true)}
-            className="flex items-center gap-1 text-[10px] font-black uppercase tracking-wider bg-[#00E676] text-black px-3 py-1.5 rounded-lg hover:bg-[#00c765] transition-colors"
-          >
-            <Plus className="w-3.5 h-3.5" /> Тренировка
-          </button>
-        </div>
+        <button
+          type="button"
+          onClick={() => setShowCreate(true)}
+          className="flex items-center gap-1 text-[10px] font-black uppercase tracking-wider bg-[#00E676] text-black px-3 py-1.5 rounded-lg hover:bg-[#00c765] transition-colors"
+        >
+          <Plus className="w-3.5 h-3.5" /> Тренировка
+        </button>
       </div>
 
       {/* Анкета атлета */}
