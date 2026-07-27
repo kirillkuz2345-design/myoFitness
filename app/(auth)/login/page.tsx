@@ -1,11 +1,12 @@
 "use client";
 
 import { useState } from "react";
+import Image from "next/image";
 import { supabase } from "@/lib/supabase"; // Исправлен импорт единого клиента
 import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import toast from "react-hot-toast";
-import { LogIn, Mail, Lock, Zap } from "lucide-react";
+import { LogIn, Mail, Lock } from "lucide-react";
 
 export default function LoginPage() {
   const [email, setEmail] = useState("");
@@ -30,9 +31,9 @@ export default function LoginPage() {
       toast.error("Ошибка входа: " + error.message, { id: loadingToast });
       setLoading(false);
     } else {
-      toast.success("С возвращением в MyoFitness!", { id: loadingToast });
+      toast.success("С возвращением в NAORE!", { id: loadingToast });
       setLoading(false);
-      
+
       // Используем жесткий редирект для мгновенного обновления AuthProvider куками сессии
       setTimeout(() => {
         window.location.href = "/";
@@ -42,20 +43,30 @@ export default function LoginPage() {
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-zinc-950 px-4 selection:bg-emerald-500/30">
-      <motion.div 
+      <motion.div
         initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }}
         className="w-full max-w-md space-y-8 rounded-3xl border border-zinc-900 bg-zinc-900/20 p-8 backdrop-blur-xl"
       >
         <div className="flex flex-col items-center space-y-4">
-          <motion.div 
+          {/* Логотип NAORE */}
+          <motion.div
             whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}
-            className="flex h-16 w-16 items-center justify-center rounded-2xl bg-emerald-500 text-zinc-950 shadow-[0_0_30px_rgba(16,185,129,0.2)]"
+            className="shadow-[0_0_30px_rgba(16,185,129,0.25)] rounded-2xl"
           >
-            <Zap className="h-8 w-8 fill-current" />
+            <Image
+              src="/icon-192.png"
+              alt="NAORE FITNESS"
+              width={64}
+              height={64}
+              priority
+              className="rounded-2xl"
+            />
           </motion.div>
           <div className="text-center">
-            <h1 className="text-3xl font-black uppercase tracking-tighter text-white">MyoFitness</h1>
-            <p className="text-sm font-medium text-zinc-500 mt-1">Твои тренировки под контролем</p>
+            <h1 className="text-3xl font-black uppercase tracking-tighter text-white">
+              NAORE <span className="text-emerald-400">FITNESS</span>
+            </h1>
+            <p className="text-sm font-medium text-zinc-500 mt-1">NAORE — путь к успеху</p>
           </div>
         </div>
 
