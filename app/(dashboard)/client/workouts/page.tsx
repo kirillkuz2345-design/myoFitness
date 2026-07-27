@@ -1,12 +1,13 @@
 // app/(dashboard)/client/workouts/page.tsx
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect, useCallback } from "react";
+import { useRouter } from "next/navigation";
 import { Card, Button, Input } from "@/components/ui/myo";
 import { useAuth } from "@/providers/AuthProvider";
 import { supabase } from "@/lib/supabase";
 import toast from "react-hot-toast";
-import { Dumbbell, Calendar, Trash2 } from "lucide-react";
+import { Dumbbell, Calendar, Trash2, ChevronRight } from "lucide-react";
 
 interface DraftExercise {
   id: string;
@@ -18,12 +19,48 @@ interface DraftExercise {
   clientNote: string;
 }
 
+interface WorkoutSummary {
+  id: string;
+  title: string;
+  workout_date: string;
+}
+
 export default function MyoPlannerDashboard() {
   const { user, loading } = useAuth();
+  const router = useRouter();
   const [workoutTitle, setWorkoutTitle] = useState("Моя силовая тренировка");
   const [selectedDate, setSelectedDate] = useState(() => new Date().toISOString().split("T")[0]);
   const [exercises, setExercises] = useState<DraftExercise[]>([]);
   const [saving, setSaving] = useState(false);
+  const [archive, setArchive] = useState<WorkoutSummary[]>([]);
+
+  const loadArchive = useCallback(async (): Promise<WorkoutSummary[] | null> => {
+    if (!user?.id) return null;
+    try {
+      const { data, error } = await supabase
+        .from("workouts")
+        .select("id, title, workout_date")
+        .eq("client_id", user.id)
+        .order("workout_date", { ascending: false });
+      if (error) throw error;
+      return (data as WorkoutSummary[]) ?? [];
+    } catch (err) {
+      console.error("Ошибка загрузки архива:", err);
+      return null;
+    }
+  }, [user]);
+
+  useEffect(() => {
+    if (!user?.id) return;
+    let cancelled = false;
+    loadArchive().then((data) => {
+      if (cancelled) return;
+      if (data) setArchive(data);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [loadArchive, user]);
 
   const addExercise = () => {
     setExercises((prev) => [
@@ -87,6 +124,8 @@ export default function MyoPlannerDashboard() {
       toast.success("Тренировка сохранена");
       setExercises([]);
       setWorkoutTitle("Моя силовая тренировка");
+      const fresh = await loadArchive();
+      if (fresh) setArchive(fresh);
     } catch (err) {
       console.error("Ошибка сохранения тренировки:", err);
       toast.error("Не удалось сохранить тренировку");
@@ -105,6 +144,31 @@ export default function MyoPlannerDashboard() {
 
   return (
     <div className="space-y-4">
+      {/* Архив тренировок */}
+      {archive.length > 0 && (
+        <div className="space-y-2">
+          <h2 className="text-[9px] font-bold uppercase tracking-[0.25em] text-[#989AA0]">
+            Архив тренировок ({archive.length})
+          </h2>
+          {archive.map((w) => (
+            <button
+              key={w.id}
+              type="button"
+              onClick={() => router.push(`/client/workouts/${w.id}`)}
+              className="w-full flex items-center justify-between rounded-2xl border border-[#1C1C1E] bg-[#111214] p-4 text-left hover:border-[#262626] transition-colors"
+            >
+              <div className="min-w-0">
+                <p className="text-xs font-bold text-white truncate">{w.title}</p>
+                <p className="text-[9px] font-bold text-[#989AA0] uppercase tracking-wider mt-0.5">
+                  {w.workout_date}
+                </p>
+              </div>
+              <ChevronRight className="w-4 h-4 text-[#989AA0] shrink-0" />
+            </button>
+          ))}
+        </div>
+      )}
+
       <h2 className="text-[9px] font-bold uppercase tracking-[0.25em] text-[#989AA0]">
         Конструктор тренировки
       </h2>

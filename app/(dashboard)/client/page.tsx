@@ -27,11 +27,18 @@ interface MetricEntry {
   recorded_at: string;
 }
 
+interface WorkoutSummary {
+  id: string;
+  title: string;
+  workout_date: string;
+}
+
 interface DashboardData {
   configs: MetricConfig[];
   metrics: MetricEntry[];
   hasTrainer: boolean;
   trainerName: string | null;
+  workouts: WorkoutSummary[];
 }
 
 const PALETTE = ["#00E676", "#3A86FF", "#8B5CF6", "#FF007F", "#FFB020"];
@@ -70,11 +77,19 @@ async function loadDashboard(): Promise<DashboardData | null> {
       trainerName = tr?.full_name ?? null;
     }
 
+    // Тренировки клиента (созданные тренером или им самим)
+    const { data: wData } = await supabase
+      .from("workouts")
+      .select("id, title, workout_date")
+      .eq("client_id", user.id)
+      .order("workout_date", { ascending: false });
+
     return {
       configs: (configsRes.data ?? []) as MetricConfig[],
       metrics: (metricsRes.data ?? []) as MetricEntry[],
       hasTrainer,
       trainerName,
+      workouts: (wData as WorkoutSummary[]) ?? [],
     };
   } catch (err) {
     console.error("Ошибка загрузки дашборда:", err);
@@ -145,6 +160,7 @@ export default function ClientDashboard() {
   const [fetching, setFetching] = useState<boolean>(true);
   const [hasTrainer, setHasTrainer] = useState(false);
   const [trainerName, setTrainerName] = useState<string | null>(null);
+  const [workouts, setWorkouts] = useState<WorkoutSummary[]>([]);
 
   // Модалка нового показателя
   const [showConfigModal, setShowConfigModal] = useState(false);
@@ -170,6 +186,7 @@ export default function ClientDashboard() {
         setMetrics(data.metrics);
         setHasTrainer(data.hasTrainer);
         setTrainerName(data.trainerName);
+        setWorkouts(data.workouts);
       }
       setFetching(false);
     });
@@ -362,6 +379,31 @@ export default function ClientDashboard() {
           </div>
         )}
       </section>
+
+      {/* Ваши тренировки */}
+      {workouts.length > 0 && (
+        <section className="space-y-3">
+          <h2 className="text-[9px] font-bold uppercase tracking-[0.25em] text-[#989AA0]">Ваши тренировки</h2>
+          <div className="space-y-2">
+            {workouts.slice(0, 5).map((w) => (
+              <button
+                key={w.id}
+                type="button"
+                onClick={() => router.push(`/client/workouts/${w.id}`)}
+                className="w-full flex items-center justify-between rounded-2xl border border-[#1C1C1E] bg-[#111214] p-4 text-left hover:border-[#262626] transition-colors"
+              >
+                <div className="min-w-0">
+                  <p className="text-xs font-bold text-white truncate">{w.title}</p>
+                  <p className="text-[9px] font-bold text-[#989AA0] uppercase tracking-wider mt-0.5">
+                    {w.workout_date}
+                  </p>
+                </div>
+                <ChevronRight className="w-4 h-4 text-[#989AA0] shrink-0" />
+              </button>
+            ))}
+          </div>
+        </section>
+      )}
 
       {/* CTA */}
       <button

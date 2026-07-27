@@ -1,12 +1,13 @@
-// app/register/page.tsx
+// app/(auth)/register/page.tsx
 "use client";
 
 import { useState, Suspense } from "react";
+import Image from "next/image";
 import { supabase } from "@/lib/supabase";
 import { useRouter, useSearchParams } from "next/navigation";
 import { motion } from "framer-motion";
 import toast from "react-hot-toast"; // Toaster монтируется глобально в app/layout.tsx
-import { UserPlus, Mail, Lock, User, ArrowLeft, Dumbbell } from "lucide-react";
+import { Mail, Lock, User, ArrowLeft, Dumbbell } from "lucide-react";
 
 
 function RegisterForm() {
@@ -138,12 +139,20 @@ function RegisterForm() {
         </button>
 
         <div className="flex flex-col items-center space-y-4 pt-4">
-          <motion.div
-            whileHover={{ scale: 1.05 }}
-            className="flex h-16 w-16 items-center justify-center rounded-2xl bg-emerald-500 text-zinc-950 shadow-[0_0_30px_rgba(16,185,129,0.2)]"
-          >
-            <UserPlus className="h-8 w-8" />
+          {/* Логотип NAORE */}
+          <motion.div whileHover={{ scale: 1.05 }} className="shadow-[0_0_30px_rgba(16,185,129,0.25)] rounded-2xl">
+            <Image
+              src="/icon-192.png"
+              alt="NAORE FITNESS"
+              width={64}
+              height={64}
+              priority
+              className="rounded-2xl"
+            />
           </motion.div>
+          <h2 className="text-sm font-black uppercase tracking-[0.25em] text-white">
+            NAORE <span className="text-emerald-400">FITNESS</span>
+          </h2>
           <div className="text-center">
             <h1 className="text-2xl font-black uppercase tracking-tighter text-white">Создать аккаунт</h1>
             {inviteCode || legacyTrainerId ? (
@@ -151,7 +160,7 @@ function RegisterForm() {
                 <Dumbbell className="w-3.5 h-3.5" /> Регистрация по приглашению тренера
               </p>
             ) : (
-              <p className="text-sm font-medium text-zinc-500 mt-1">Присоединяйтесь к myofitness</p>
+              <p className="text-sm font-medium text-zinc-500 mt-1">NAORE — путь к успеху</p>
             )}
           </div>
         </div>
