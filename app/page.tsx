@@ -1,29 +1,36 @@
 // app/page.tsx
 "use client";
 
-import React, { useEffect } from "react";
+import React, { useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/providers/AuthProvider";
 import { supabase } from "@/lib/supabase";
 
+const MAX_PROFILE_ATTEMPTS = 8; // ~4с ожидания профиля (лаг триггера после signUp)
+
 export default function RootPage() {
-  const { user, profile, loading } = useAuth();
+  const { user, profile, loading, refreshProfile } = useAuth();
   const router = useRouter();
+  const attemptsRef = useRef(0);
 
   useEffect(() => {
     if (loading) return;
 
-    // 1. Нет сессии — на логин (код приглашения уже сохранён на /invite)
+    // 1. Нет сессии — на логин
     if (!user) {
       router.replace("/login");
       return;
     }
 
-    const userRole = profile?.role?.toUpperCase();
+    // 2. Профиль загружен — применяем отложенную привязку и маршрутизируем по роли
+    if (profile) {
+      const role = profile.role?.toUpperCase();
 
-    // 2. Применяем отложенную привязку по инвайт-ссылке (после входа/регистрации).
-    //    Тренера не привязываем.
-    async function applyPendingAndRoute() {
+      const routeByRole = () => {
+        if (role === "TRAINER") router.replace("/trainer/clients");
+        else router.replace("/client");
+      };
+
       let pending: string | null = null;
       try {
         pending = localStorage.getItem("naore_pending_trainer");
@@ -31,37 +38,42 @@ export default function RootPage() {
         pending = null;
       }
 
-      if (pending && userRole !== "TRAINER" && user) {
-        try {
-          const { data: updated, error } = await supabase
-            .from("profiles")
-            .update({ trainer_id: pending })
-            .eq("id", user.id)
-            .select("id");
-          // Чистим код только если апдейт реально прошёл (профиль уже существует)
-          if (!error && updated && updated.length > 0) {
-            try {
-              localStorage.removeItem("naore_pending_trainer");
-            } catch {
-              /* ignore */
+      if (pending && role !== "TRAINER") {
+        supabase
+          .from("profiles")
+          .update({ trainer_id: pending })
+          .eq("id", user.id)
+          .select("id")
+          .then(({ data, error }) => {
+            if (!error && data && data.length > 0) {
+              try {
+                localStorage.removeItem("naore_pending_trainer");
+              } catch {
+                /* ignore */
+              }
             }
-          }
-        } catch (err) {
-          console.error("Ошибка привязки по инвайту:", err);
-        }
+            routeByRole();
+          });
+      } else {
+        routeByRole();
       }
-
-      if (!profile) {
-        console.warn("Сессия найдена, но профиль в таблице profiles отсутствует.");
-        router.replace("/client");
-        return;
-      }
-      if (userRole === "TRAINER") router.replace("/trainer/clients");
-      else router.replace("/client");
+      return;
     }
 
-    applyPendingAndRoute();
-  }, [user, profile, loading, router]);
+    // 3. Профиль ещё не подгрузился (лаг триггера) — ждём и перезапрашиваем,
+    //    чтобы НЕ отправить тренера в клиентский кабинет по ошибке.
+    if (attemptsRef.current < MAX_PROFILE_ATTEMPTS) {
+      attemptsRef.current += 1;
+      const t = setTimeout(() => {
+        refreshProfile();
+      }, 500);
+      return () => clearTimeout(t);
+    }
+
+    // 4. Профиль так и не появился — крайний фолбэк, чтобы не висеть вечно
+    console.warn("Профиль не загрузился после нескольких попыток — фолбэк в /client.");
+    router.replace("/client");
+  }, [user, profile, loading, router, refreshProfile]);
 
   const handleForceLogout = async () => {
     await supabase.auth.signOut();
@@ -78,12 +90,11 @@ export default function RootPage() {
         </span>
         {!loading && user && !profile && (
           <span className="text-[9px] text-amber-500/70 uppercase tracking-wider block max-w-xs">
-            Синхронизация структуры БД задерживается. Направляем в кабинет...
+            Синхронизация профиля...
           </span>
         )}
       </div>
 
-      {/* Аварийная кнопка на случай полного сбоя сессии */}
       {!loading && (
         <button
           onClick={handleForceLogout}
