@@ -8,6 +8,7 @@ import {
   Settings,
   Users,
   CalendarDays,
+  MessageSquare,
   BarChart3,
   Wallet,
   LogOut,
@@ -25,6 +26,7 @@ interface NavItem {
 const NAV: NavItem[] = [
   { key: "clients", label: "Атлеты", icon: Users, href: "/trainer/clients" },
   { key: "calendar", label: "Календарь", icon: CalendarDays, href: "/trainer/calendar" },
+  { key: "chat", label: "Чат", icon: MessageSquare, href: "/trainer/chat" },
   { key: "analytics", label: "Аналитика", icon: BarChart3, href: "/trainer/analytics" },
   { key: "payments", label: "Оплаты", icon: Wallet, href: "/trainer/payments" },
   { key: "logout", label: "Выход", icon: LogOut, href: "/login", action: "logout" },
@@ -79,7 +81,7 @@ export default function TrainerRootLayout({ children }: { children: React.ReactN
         className="fixed bottom-0 inset-x-0 z-40 border-t border-[#1C1C1E] bg-[#0A0A0A]/95 backdrop-blur-md"
         style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
       >
-        <div className="mx-auto max-w-3xl px-2 h-16 flex items-center justify-between">
+        <div className="mx-auto max-w-3xl px-1 h-16 flex items-center justify-between">
           {NAV.map((item) => {
             const Icon = item.icon;
             const active = isActive(item);
