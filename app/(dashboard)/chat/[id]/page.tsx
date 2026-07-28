@@ -7,6 +7,7 @@ import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/providers/AuthProvider';
 import toast from 'react-hot-toast';
 import { ArrowLeft, Send, Pencil, Check, X } from 'lucide-react';
+import KbjuCalculator from '@/components/assistant/KbjuCalculator';
 
 interface Message {
   id: string;
@@ -28,6 +29,7 @@ export default function ChatRoom({ params }: { params: Promise<{ id: string }> }
   const [sending, setSending] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editText, setEditText] = useState('');
+  const [tab, setTab] = useState<'trainer' | 'assistant'>('trainer');
   const chatEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -144,11 +146,40 @@ export default function ChatRoom({ params }: { params: Promise<{ id: string }> }
           >
             <ArrowLeft className="w-4 h-4" />
           </button>
-          <h1 className="text-xs font-black uppercase tracking-widest text-white">Чат</h1>
+          <div className="flex gap-1">
+            <button
+              type="button"
+              onClick={() => setTab("trainer")}
+              className={`px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-wider transition-colors ${
+                tab === "trainer" ? "bg-[#111214] text-[#00E676] border border-[#1C1C1E]" : "text-[#989AA0]"
+              }`}
+            >
+              Тренер
+            </button>
+            <button
+              type="button"
+              onClick={() => setTab("assistant")}
+              className={`px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-wider transition-colors ${
+                tab === "assistant" ? "bg-[#111214] text-[#00E676] border border-[#1C1C1E]" : "text-[#989AA0]"
+              }`}
+            >
+              Помощник
+            </button>
+          </div>
         </div>
       </header>
 
-      {/* Лента */}
+      {/* Помощник (калькулятор КБЖУ) */}
+      {tab === "assistant" && (
+        <div className="flex-1 overflow-y-auto">
+          <div className="mx-auto max-w-2xl px-4 py-4">
+            <KbjuCalculator />
+          </div>
+        </div>
+      )}
+
+      {/* Лента чата с тренером */}
+      {tab === "trainer" && (
       <div className="flex-1 overflow-y-auto">
         <div className="mx-auto max-w-2xl px-4 py-4 space-y-2">
           {messages.length === 0 ? (
@@ -223,8 +254,10 @@ export default function ChatRoom({ params }: { params: Promise<{ id: string }> }
           <div ref={chatEndRef} />
         </div>
       </div>
+      )}
 
-      {/* Ввод */}
+      {/* Ввод (только в чате с тренером) */}
+      {tab === "trainer" && (
       <div
         className="sticky bottom-0 border-t border-[#1C1C1E] bg-[#0A0A0A]/95 backdrop-blur-md"
         style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
@@ -246,6 +279,7 @@ export default function ChatRoom({ params }: { params: Promise<{ id: string }> }
           </button>
         </form>
       </div>
+      )}
     </div>
   );
 }
