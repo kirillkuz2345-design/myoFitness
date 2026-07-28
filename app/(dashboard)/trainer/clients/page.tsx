@@ -13,6 +13,7 @@ interface ClientProfile {
   id: string;
   full_name: string | null;
   avatar_url?: string | null;
+  goal?: string | null;
   height?: number | null;
   weight?: number | null;
 }
@@ -35,7 +36,7 @@ export default function TrainerClientsListPage() {
     try {
       const { data, error } = await supabase
         .from("profiles")
-        .select("id, full_name, avatar_url, height, weight")
+        .select("id, full_name, avatar_url, goal, height, weight")
         .eq("role", "client")
         .eq("trainer_id", trainerId);
       if (error) throw error;
@@ -174,19 +175,37 @@ export default function TrainerClientsListPage() {
               key={client.id}
               className="p-4 bg-[#111214] border border-[#1C1C1E] hover:border-zinc-700 transition-colors rounded-2xl"
             >
-              <div className="flex items-center justify-between">
-                <div className="space-y-1">
-                  <span className="text-xs font-black text-white uppercase block">
+              <div className="flex items-center gap-3">
+                <div
+                  className="h-11 w-11 rounded-full border border-[#1C1C1E] bg-[#0A0A0A] bg-cover bg-center flex items-center justify-center overflow-hidden shrink-0"
+                  style={client.avatar_url ? { backgroundImage: `url(${client.avatar_url})` } : undefined}
+                >
+                  {!client.avatar_url && (
+                    <span className="text-[11px] font-black text-[#00E676]">
+                      {(client.full_name?.[0] ?? "А").toUpperCase()}
+                    </span>
+                  )}
+                </div>
+
+                <div className="flex-1 min-w-0 space-y-0.5">
+                  <span className="text-xs font-black text-white uppercase block truncate">
                     {client.full_name || "Атлет без имени"}
                   </span>
-                  <div className="flex gap-3 text-[9px] text-[#989AA0] font-bold uppercase">
-                    {client.weight && <span>Вес: {client.weight} кг</span>}
-                    {client.height && <span>Рост: {client.height} см</span>}
-                  </div>
+                  <p className="text-[9px] text-[#989AA0] truncate">
+                    {client.goal
+                      ? client.goal
+                      : [
+                          client.weight ? `Вес: ${client.weight} кг` : null,
+                          client.height ? `Рост: ${client.height} см` : null,
+                        ]
+                          .filter(Boolean)
+                          .join(" · ") || "Описание не заполнено"}
+                  </p>
                 </div>
+
                 <Button
                   variant="primary"
-                  className="!text-[9px] h-8 px-4 font-black"
+                  className="!text-[9px] h-8 px-4 font-black shrink-0"
                   onClick={() => router.push(`/trainer/clients/${client.id}`)}
                 >
                   <Sliders className="w-3 h-3 mr-1" /> Разбор

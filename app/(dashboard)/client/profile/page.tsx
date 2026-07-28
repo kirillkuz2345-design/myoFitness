@@ -3,10 +3,11 @@
 import React, { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import toast from "react-hot-toast";
-import { User, Shield, Mail } from "lucide-react";
+import { User, Shield, Mail, Camera } from "lucide-react";
 
 interface ProfileForm {
   full_name: string;
+  phone: string;
   goal: string;
   height: string;
   weight: string;
@@ -16,6 +17,7 @@ interface ProfileForm {
 
 const EMPTY: ProfileForm = {
   full_name: "",
+  phone: "",
   goal: "",
   height: "",
   weight: "",
@@ -24,11 +26,14 @@ const EMPTY: ProfileForm = {
 };
 
 export default function ProfilePage() {
+  const [userId, setUserId] = useState<string | null>(null);
   const [email, setEmail] = useState("");
   const [role, setRole] = useState<"client" | "trainer">("client");
+  const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
   const [form, setForm] = useState<ProfileForm>(EMPTY);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [uploading, setUploading] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -37,19 +42,24 @@ export default function ProfilePage() {
       try {
         const { data: { user } } = await supabase.auth.getUser();
         if (!user) return;
-        if (!cancelled) setEmail(user.email ?? "");
+        if (!cancelled) {
+          setEmail(user.email ?? "");
+          setUserId(user.id);
+        }
 
         const { data, error } = await supabase
           .from("profiles")
-          .select("full_name, role, goal, height, weight, birth_date, injuries")
+          .select("full_name, role, phone, avatar_url, goal, height, weight, birth_date, injuries")
           .eq("id", user.id)
           .single();
 
         if (error) throw error;
         if (data && !cancelled) {
           setRole(String(data.role).toLowerCase() === "trainer" ? "trainer" : "client");
+          setAvatarUrl(data.avatar_url ?? null);
           setForm({
             full_name: data.full_name ?? "",
+            phone: data.phone ?? "",
             goal: data.goal ?? "",
             height: data.height != null ? String(data.height) : "",
             weight: data.weight != null ? String(data.weight) : "",
@@ -74,22 +84,52 @@ export default function ProfilePage() {
     setForm((f) => ({ ...f, [field]: value }));
   };
 
+  const handleAvatar = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !userId) return;
+    if (file.size > 5 * 1024 * 1024) {
+      toast.error("Фото больше 5 МБ");
+      return;
+    }
+    setUploading(true);
+    try {
+      const ext = file.name.split(".").pop() || "jpg";
+      const path = `${userId}/avatar_${Date.now()}.${ext}`;
+      const { error: upErr } = await supabase.storage.from("avatars").upload(path, file, { upsert: true });
+      if (upErr) throw upErr;
+
+      const { data: pub } = supabase.storage.from("avatars").getPublicUrl(path);
+      const url = pub.publicUrl;
+
+      const { error: updErr } = await supabase.from("profiles").update({ avatar_url: url }).eq("id", userId);
+      if (updErr) throw updErr;
+
+      setAvatarUrl(url);
+      toast.success("Фото обновлено");
+    } catch (err) {
+      console.error("Ошибка загрузки фото:", err);
+      toast.error("Не удалось загрузить фото");
+    } finally {
+      setUploading(false);
+    }
+  };
+
   const handleSave = async () => {
+    if (!userId) return;
     setSaving(true);
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
       const { error } = await supabase
         .from("profiles")
         .update({
           full_name: form.full_name.trim() || null,
+          phone: form.phone.trim() || null,
           goal: form.goal.trim() || null,
           height: form.height.trim() === "" ? null : Number(form.height),
           weight: form.weight.trim() === "" ? null : Number(form.weight),
           birth_date: form.birth_date || null,
           injuries: form.injuries.trim() || null,
         })
-        .eq("id", user.id);
+        .eq("id", userId);
       if (error) throw error;
       toast.success("Анкета сохранена");
     } catch (err) {
@@ -115,8 +155,22 @@ export default function ProfilePage() {
     <div className="space-y-4">
       <h2 className="text-[9px] font-bold uppercase tracking-[0.25em] text-[#989AA0]">Профиль атлета</h2>
 
-      {/* Учётные данные */}
-      <div className="rounded-2xl border border-[#1C1C1E] bg-[#111214] p-5 space-y-3">
+      {/* Фото + учётные данные */}
+      <div className="rounded-2xl border border-[#1C1C1E] bg-[#111214] p-5 space-y-4">
+        <div className="flex items-center gap-4">
+          <div
+            className="h-20 w-20 rounded-full border border-[#1C1C1E] bg-[#0A0A0A] bg-cover bg-center flex items-center justify-center overflow-hidden shrink-0"
+            style={avatarUrl ? { backgroundImage: `url(${avatarUrl})` } : undefined}
+          >
+            {!avatarUrl && <User className="w-8 h-8 text-[#989AA0]" />}
+          </div>
+          <label className="cursor-pointer flex items-center gap-1.5 text-[10px] font-black uppercase tracking-wider text-[#00E676] hover:text-[#00c765]">
+            <Camera className="w-3.5 h-3.5" />
+            {uploading ? "Загрузка..." : "Загрузить фото"}
+            <input type="file" accept="image/*" onChange={handleAvatar} disabled={uploading} className="hidden" />
+          </label>
+        </div>
+
         <div className="flex justify-between items-center bg-[#0A0A0A] p-3 border border-[#1C1C1E] rounded-lg">
           <span className="text-[#989AA0] flex items-center gap-1.5 text-xs">
             <Mail className="w-3.5 h-3.5 text-[#989AA0]" /> Email
@@ -145,8 +199,18 @@ export default function ProfilePage() {
           <User className="w-3.5 h-3.5 text-[#00E676]" /> Анкета
         </h3>
 
-        <Field label="Имя">
+        <Field label="ФИО">
           <input value={form.full_name} onChange={(e) => update("full_name", e.target.value)} className={inputCls} />
+        </Field>
+
+        <Field label="Телефон">
+          <input
+            type="tel"
+            value={form.phone}
+            onChange={(e) => update("phone", e.target.value)}
+            placeholder="+7 900 000-00-00"
+            className={inputCls}
+          />
         </Field>
 
         <Field label="Запрос / цель">
