@@ -2,11 +2,11 @@
 
 import { useState, useEffect, useRef, use } from 'react';
 import { useRouter } from 'next/navigation';
-import type { RealtimePostgresInsertPayload } from '@supabase/supabase-js';
+import type { RealtimePostgresChangesPayload } from '@supabase/supabase-js';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/providers/AuthProvider';
 import toast from 'react-hot-toast';
-import { ArrowLeft, Send } from 'lucide-react';
+import { ArrowLeft, Send, Pencil, Check, X } from 'lucide-react';
 
 interface Message {
   id: string;
@@ -26,6 +26,8 @@ export default function ChatRoom({ params }: { params: Promise<{ id: string }> }
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editText, setEditText] = useState('');
   const chatEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -51,12 +53,20 @@ export default function ChatRoom({ params }: { params: Promise<{ id: string }> }
       .channel(`chat-${clientId}`)
       .on(
         'postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'messages', filter: `client_id=eq.${clientId}` },
-        (payload: RealtimePostgresInsertPayload<Message>) => {
-          const row = payload.new;
-          if (cancelled || !row) return;
-          // Дедуп: realtime может продублировать строку из initial select.
-          setMessages((prev) => (prev.some((m) => m.id === row.id) ? prev : [...prev, row]));
+        { event: '*', schema: 'public', table: 'messages', filter: `client_id=eq.${clientId}` },
+        (payload: RealtimePostgresChangesPayload<Message>) => {
+          if (cancelled) return;
+          if (payload.eventType === 'INSERT') {
+            const row = payload.new as Message;
+            // Дедуп: realtime может продублировать строку из initial select.
+            setMessages((prev) => (prev.some((m) => m.id === row.id) ? prev : [...prev, row]));
+          } else if (payload.eventType === 'UPDATE') {
+            const row = payload.new as Message;
+            setMessages((prev) => prev.map((m) => (m.id === row.id ? row : m)));
+          } else if (payload.eventType === 'DELETE') {
+            const old = payload.old as Partial<Message>;
+            setMessages((prev) => prev.filter((m) => m.id !== old.id));
+          }
         }
       )
       .subscribe();
@@ -95,6 +105,29 @@ export default function ChatRoom({ params }: { params: Promise<{ id: string }> }
     setInput('');
   };
 
+  const startEdit = (m: Message) => {
+    setEditingId(m.id);
+    setEditText(m.text);
+  };
+
+  const saveEdit = async (id: string) => {
+    const text = editText.trim();
+    if (!text) {
+      setEditingId(null);
+      return;
+    }
+    const prevText = messages.find((m) => m.id === id)?.text ?? '';
+    setMessages((cur) => cur.map((m) => (m.id === id ? { ...m, text } : m)));
+    setEditingId(null);
+
+    const { error } = await supabase.from('messages').update({ text }).eq('id', id);
+    if (error) {
+      console.error('[chat] Ошибка редактирования:', error);
+      toast.error('Не удалось изменить сообщение');
+      setMessages((cur) => cur.map((m) => (m.id === id ? { ...m, text: prevText } : m)));
+    }
+  };
+
   return (
     <div className="min-h-screen bg-[#0A0A0A] text-[#E1E3E6] font-mono antialiased flex flex-col">
       {/* Шапка */}
@@ -125,13 +158,60 @@ export default function ChatRoom({ params }: { params: Promise<{ id: string }> }
           ) : (
             messages.map((msg) => {
               const mine = msg.sender_id === user?.id;
+
+              // Режим редактирования своего сообщения
+              if (editingId === msg.id) {
+                return (
+                  <div key={msg.id} className="flex justify-end">
+                    <div className="w-full max-w-[85%] flex items-center gap-1">
+                      <input
+                        autoFocus
+                        value={editText}
+                        onChange={(e) => setEditText(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") saveEdit(msg.id);
+                          if (e.key === "Escape") setEditingId(null);
+                        }}
+                        className="flex-1 bg-[#111214] border border-[#00E676] rounded-lg px-3 py-2 text-xs text-white outline-none"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => saveEdit(msg.id)}
+                        aria-label="Сохранить"
+                        className="h-8 w-8 flex items-center justify-center rounded-lg bg-[#00E676] text-black shrink-0"
+                      >
+                        <Check className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setEditingId(null)}
+                        aria-label="Отмена"
+                        className="h-8 w-8 flex items-center justify-center rounded-lg border border-[#1C1C1E] text-[#989AA0] shrink-0"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                );
+              }
+
               return (
-                <div key={msg.id} className={`flex ${mine ? 'justify-end' : 'justify-start'}`}>
+                <div key={msg.id} className={`flex items-center gap-1.5 ${mine ? "justify-end" : "justify-start"}`}>
+                  {mine && (
+                    <button
+                      type="button"
+                      onClick={() => startEdit(msg)}
+                      aria-label="Изменить"
+                      className="text-[#989AA0]/60 hover:text-[#00E676] shrink-0"
+                    >
+                      <Pencil className="w-3 h-3" />
+                    </button>
+                  )}
                   <div
                     className={`max-w-[80%] px-3 py-2 rounded-2xl text-xs ${
                       mine
-                        ? 'bg-[#00E676] text-black rounded-br-sm'
-                        : 'bg-[#111214] border border-[#1C1C1E] text-white rounded-bl-sm'
+                        ? "bg-[#00E676] text-black rounded-br-sm"
+                        : "bg-[#111214] border border-[#1C1C1E] text-white rounded-bl-sm"
                     }`}
                   >
                     {msg.text}
