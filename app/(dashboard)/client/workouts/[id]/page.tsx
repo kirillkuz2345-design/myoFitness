@@ -36,6 +36,17 @@ export default function ClientWorkoutDetail({ params }: { params: Promise<{ id: 
   const [workout, setWorkout] = useState<Workout | null>(null);
   const [exercises, setExercises] = useState<Exercise[]>([]);
   const [loading, setLoading] = useState(true);
+  // Отметки выполненных подходов (локально, на время тренировки)
+  const [completed, setCompleted] = useState<Record<string, boolean[]>>({});
+
+  const toggleSet = (exId: string, i: number, total: number) => {
+    setCompleted((prev) => {
+      const arr = [...(prev[exId] ?? new Array(total).fill(false))];
+      arr[i] = !arr[i];
+      return { ...prev, [exId]: arr };
+    });
+  };
+  const doneCount = (exId: string) => (completed[exId] ?? []).filter(Boolean).length;
 
   useEffect(() => {
     let cancelled = false;
@@ -155,6 +166,38 @@ export default function ClientWorkoutDetail({ params }: { params: Promise<{ id: 
                   {ex.sets}×{ex.reps} {ex.weight ? `· ${ex.weight} кг` : ""}
                 </span>
               </div>
+
+              {/* Индикаторы подходов */}
+              {ex.sets > 0 && (
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[8px] font-bold uppercase tracking-[0.2em] text-[#989AA0]">Подходы</span>
+                    <span className="text-[9px] font-black text-[#00E676]">
+                      {doneCount(ex.id)}/{ex.sets}
+                    </span>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {Array.from({ length: ex.sets }).map((_, i) => {
+                      const isDone = (completed[ex.id] ?? [])[i] ?? false;
+                      return (
+                        <button
+                          key={i}
+                          type="button"
+                          onClick={() => toggleSet(ex.id, i, ex.sets)}
+                          aria-label={`Подход ${i + 1}`}
+                          className={`h-8 w-8 rounded-lg border text-[11px] font-black flex items-center justify-center transition-colors ${
+                            isDone
+                              ? "bg-[#00E676] border-[#00E676] text-black"
+                              : "bg-[#0A0A0A] border-[#1C1C1E] text-[#989AA0] hover:border-[#00E676]/40"
+                          }`}
+                        >
+                          {i + 1}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
 
               {ex.trainer_comment && (
                 <div className="bg-[#0A0A0A] border border-[#1C1C1E] rounded-lg p-2.5 text-[11px] text-gray-300">
