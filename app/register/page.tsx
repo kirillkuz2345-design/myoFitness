@@ -9,6 +9,14 @@ import { motion } from "framer-motion";
 import toast from "react-hot-toast"; // Toaster монтируется глобально в app/layout.tsx
 import { Mail, Lock, User, ArrowLeft, Dumbbell } from "lucide-react";
 
+// ФИО: буквы (кириллица/латиница), пробел, дефис, апостроф; минимум 2 символа.
+const NAME_RE = /^[A-Za-zА-Яа-яЁё\s'-]{2,}$/;
+// Email: базовый формат «есть@есть.домен».
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+// Пароль: минимум 8 символов, есть буква и цифра, без пробелов.
+function isValidPassword(p: string): boolean {
+  return p.length >= 8 && /[A-Za-zА-Яа-яЁё]/.test(p) && /\d/.test(p) && !/\s/.test(p);
+}
 
 function RegisterForm() {
   const router = useRouter();
@@ -21,6 +29,7 @@ function RegisterForm() {
   const [password, setPassword] = useState("");
   const [fullName, setFullName] = useState("");
   const [role, setRole] = useState<"client" | "trainer">("client");
+  const [agree, setAgree] = useState(false);
   const [loading, setLoading] = useState(false);
 
   const handleRegister = async (e: React.FormEvent) => {
@@ -29,8 +38,17 @@ function RegisterForm() {
     const cleanEmail = email.trim().toLowerCase();
     const cleanFullName = fullName.trim().replace(/\s+/g, ' ');
 
-    if (cleanFullName.length < 2) {
-      return toast.error("Введите корректное имя и фамилию");
+    if (!NAME_RE.test(cleanFullName)) {
+      return toast.error("ФИО: только буквы, пробел и дефис (минимум 2 символа)");
+    }
+    if (!EMAIL_RE.test(cleanEmail)) {
+      return toast.error("Введите корректный email");
+    }
+    if (!isValidPassword(password)) {
+      return toast.error("Пароль: минимум 8 символов, буквы и цифры, без пробелов");
+    }
+    if (!agree) {
+      return toast.error("Примите пользовательское соглашение и политику ПДн");
     }
 
     setLoading(true);
@@ -200,7 +218,7 @@ function RegisterForm() {
               <input
                 type="password"
                 required
-                minLength={6}
+                minLength={8}
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 className="w-full rounded-2xl border border-zinc-800 bg-zinc-950 py-4 pl-11 pr-4 text-sm text-white placeholder-zinc-700 outline-none transition focus:border-emerald-500/50 focus:ring-1 focus:ring-emerald-500/50"
@@ -232,10 +250,25 @@ function RegisterForm() {
             </div>
           )}
 
+          <label className="flex items-start gap-2 pt-1 text-[11px] leading-snug text-zinc-400">
+            <input
+              type="checkbox"
+              checked={agree}
+              onChange={(e) => setAgree(e.target.checked)}
+              className="mt-0.5 h-4 w-4 shrink-0 accent-emerald-500"
+            />
+            <span>
+              Принимаю{" "}
+              <a href="/legal" target="_blank" rel="noopener noreferrer" className="text-emerald-400 underline">
+                пользовательское соглашение и политику обработки ПДн
+              </a>
+            </span>
+          </label>
+
           <button
             type="submit"
-            disabled={loading}
-            className="group relative mt-4 flex w-full items-center justify-center gap-2 rounded-2xl bg-emerald-500 py-4 text-sm font-bold text-zinc-950 shadow-lg shadow-emerald-500/10 transition hover:bg-emerald-400 disabled:opacity-50"
+            disabled={loading || !agree}
+            className="group relative mt-2 flex w-full items-center justify-center gap-2 rounded-2xl bg-emerald-500 py-4 text-sm font-bold text-zinc-950 shadow-lg shadow-emerald-500/10 transition hover:bg-emerald-400 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {loading ? (
               <div className="h-5 w-5 animate-spin rounded-full border-2 border-zinc-900 border-t-transparent" />
