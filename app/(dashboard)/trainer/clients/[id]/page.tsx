@@ -66,9 +66,14 @@ export default function TrainerClientView({ params }: Props) {
   const [info, setInfo] = useState({ full_name: '', goal: '', height: '', weight: '', birth_date: '', injuries: '' });
   const [infoSaving, setInfoSaving] = useState(false);
 
-  // Role-gate: только тренер может открывать разбор чужих тренировок.
+  // Role-gate: только тренер. НЕ выкидываем, пока профиль ещё грузится (null),
+  // иначе при обновлении страницы сбрасывает на /login.
   useEffect(() => {
-    if (!authLoading && (!user || profile?.role?.toUpperCase() !== 'TRAINER')) {
+    if (!authLoading && !user) {
+      router.replace('/login');
+      return;
+    }
+    if (!authLoading && profile && profile.role?.toUpperCase() !== 'TRAINER') {
       router.replace('/login');
     }
   }, [authLoading, user, profile, router]);

@@ -166,8 +166,13 @@ export default function TrainerAnalyticsPage() {
   const [valDate, setValDate] = useState(() => ymd(new Date()));
   const [savingVal, setSavingVal] = useState(false);
 
+  // Не выкидываем, пока профиль ещё грузится (иначе F5 сбрасывает на /login)
   useEffect(() => {
-    if (!authLoading && (!user || profile?.role?.toUpperCase() !== "TRAINER")) {
+    if (!authLoading && !user) {
+      router.replace("/login");
+      return;
+    }
+    if (!authLoading && profile && profile.role?.toUpperCase() !== "TRAINER") {
       router.replace("/login");
     }
   }, [authLoading, user, profile, router]);

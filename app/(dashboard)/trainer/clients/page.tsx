@@ -48,7 +48,12 @@ export default function TrainerClientsListPage() {
   }, []);
 
   useEffect(() => {
-    if (!loading && (!user || profile?.role?.toUpperCase() !== "TRAINER")) {
+    // Не выкидываем, пока профиль ещё грузится (иначе F5 сбрасывает на /login)
+    if (!loading && !user) {
+      router.replace("/login");
+      return;
+    }
+    if (!loading && profile && profile.role?.toUpperCase() !== "TRAINER") {
       router.replace("/login");
       return;
     }

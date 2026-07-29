@@ -55,8 +55,13 @@ export default function TrainerPaymentsPage() {
   const [pDue, setPDue] = useState(() => ymd(new Date()));
   const [pNote, setPNote] = useState("");
 
+  // Не выкидываем, пока профиль ещё грузится (иначе F5 сбрасывает на /login)
   useEffect(() => {
-    if (!authLoading && (!user || profile?.role?.toUpperCase() !== "TRAINER")) {
+    if (!authLoading && !user) {
+      router.replace("/login");
+      return;
+    }
+    if (!authLoading && profile && profile.role?.toUpperCase() !== "TRAINER") {
       router.replace("/login");
     }
   }, [authLoading, user, profile, router]);

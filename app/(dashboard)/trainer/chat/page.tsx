@@ -19,8 +19,13 @@ export default function TrainerChatListPage() {
   const [clients, setClients] = useState<ClientRow[]>([]);
   const [fetching, setFetching] = useState(true);
 
+  // Не выкидываем, пока профиль ещё грузится (иначе F5 сбрасывает на /login)
   useEffect(() => {
-    if (!authLoading && (!user || profile?.role?.toUpperCase() !== "TRAINER")) {
+    if (!authLoading && !user) {
+      router.replace("/login");
+      return;
+    }
+    if (!authLoading && profile && profile.role?.toUpperCase() !== "TRAINER") {
       router.replace("/login");
     }
   }, [authLoading, user, profile, router]);
