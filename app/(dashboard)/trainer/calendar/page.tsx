@@ -5,6 +5,7 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/providers/AuthProvider";
 import { supabase } from "@/lib/supabase";
+import { withRetry } from "@/lib/dbRetry";
 import toast from "react-hot-toast";
 import { ChevronLeft, ChevronRight, Copy, X, Plus, Trash2 } from "lucide-react";
 
@@ -216,17 +217,19 @@ export default function TrainerCalendarPage() {
     }
     setSaving(true);
     try {
-      const { data: wRow, error: wErr } = await supabase
-        .from("workouts")
-        .insert({
-          client_id: selectedClientId,
-          creator_id: user.id,
-          title: cpTitle.trim(),
-          workout_date: cpDate,
-          recommendation: cpRec.trim() || null,
-        })
-        .select("id")
-        .single();
+      const { data: wRow, error: wErr } = await withRetry(() =>
+        supabase
+          .from("workouts")
+          .insert({
+            client_id: selectedClientId,
+            creator_id: user.id,
+            title: cpTitle.trim(),
+            workout_date: cpDate,
+            recommendation: cpRec.trim() || null,
+          })
+          .select("id")
+          .single()
+      );
       if (wErr) throw wErr;
       const newId: string = wRow.id;
 
@@ -242,7 +245,7 @@ export default function TrainerCalendarPage() {
           client_note: d.clientNote.trim() || null,
         }));
       if (rows.length > 0) {
-        const { error: exErr } = await supabase.from("exercises").insert(rows);
+        const { error: exErr } = await withRetry(() => supabase.from("exercises").insert(rows));
         if (exErr) throw exErr;
       }
 

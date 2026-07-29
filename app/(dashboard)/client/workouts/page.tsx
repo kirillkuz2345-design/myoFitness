@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { Card, Button, Input } from "@/components/ui/myo";
 import { useAuth } from "@/providers/AuthProvider";
 import { supabase } from "@/lib/supabase";
+import { withRetry } from "@/lib/dbRetry";
 import toast from "react-hot-toast";
 import { Dumbbell, Calendar, Trash2, ChevronRight } from "lucide-react";
 
@@ -89,16 +90,18 @@ export default function MyoPlannerDashboard() {
     setSaving(true);
     try {
       // 1. Тренировка от лица атлета (client_id = creator_id = сам)
-      const { data: wRow, error: wErr } = await supabase
-        .from("workouts")
-        .insert({
-          client_id: user.id,
-          creator_id: user.id,
-          title: workoutTitle.trim(),
-          workout_date: selectedDate,
-        })
-        .select("id")
-        .single();
+      const { data: wRow, error: wErr } = await withRetry(() =>
+        supabase
+          .from("workouts")
+          .insert({
+            client_id: user.id,
+            creator_id: user.id,
+            title: workoutTitle.trim(),
+            workout_date: selectedDate,
+          })
+          .select("id")
+          .single()
+      );
 
       if (wErr) throw wErr;
       const newId: string = wRow.id;
@@ -117,7 +120,7 @@ export default function MyoPlannerDashboard() {
         }));
 
       if (rows.length > 0) {
-        const { error: exErr } = await supabase.from("exercises").insert(rows);
+        const { error: exErr } = await withRetry(() => supabase.from("exercises").insert(rows));
         if (exErr) throw exErr;
       }
 

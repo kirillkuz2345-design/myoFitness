@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, use } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
+import { withRetry } from '@/lib/dbRetry';
 import { useAuth } from '@/providers/AuthProvider';
 import { ArrowLeft, Save, Plus, X, Trash2, ClipboardList } from 'lucide-react';
 import Link from 'next/link';
@@ -282,17 +283,19 @@ export default function TrainerClientView({ params }: Props) {
     setSaving(true);
     try {
       // 1. Создаём тренировку (creator_id — тренер, NOT NULL в схеме)
-      const { data: wRow, error: wErr } = await supabase
-        .from('workouts')
-        .insert({
-          client_id: clientId,
-          creator_id: user.id,
-          title: cwTitle.trim(),
-          workout_date: cwDate,
-          recommendation: cwRec.trim() || null,
-        })
-        .select('id')
-        .single();
+      const { data: wRow, error: wErr } = await withRetry(() =>
+        supabase
+          .from('workouts')
+          .insert({
+            client_id: clientId,
+            creator_id: user.id,
+            title: cwTitle.trim(),
+            workout_date: cwDate,
+            recommendation: cwRec.trim() || null,
+          })
+          .select('id')
+          .single()
+      );
 
       if (wErr) throw wErr;
       const newId: string = wRow.id;
@@ -311,7 +314,7 @@ export default function TrainerClientView({ params }: Props) {
         }));
 
       if (rows.length > 0) {
-        const { error: exErr } = await supabase.from('exercises').insert(rows);
+        const { error: exErr } = await withRetry(() => supabase.from('exercises').insert(rows));
         if (exErr) throw exErr;
       }
 
