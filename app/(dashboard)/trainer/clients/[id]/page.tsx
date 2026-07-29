@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 import { withRetry } from '@/lib/dbRetry';
 import { useAuth } from '@/providers/AuthProvider';
-import { ArrowLeft, Save, Plus, X, Trash2, ClipboardList } from 'lucide-react';
+import { ArrowLeft, Save, Plus, X, Trash2, ClipboardList, Pencil } from 'lucide-react';
 import Link from 'next/link';
 import toast from 'react-hot-toast';
 import type {
@@ -32,6 +32,7 @@ interface Workout {
 
 interface DraftExercise {
   tempId: string;
+  id?: string; // реальный id упражнения (при редактировании существующего)
   name: string;
   sets: string;
   reps: string;
@@ -61,6 +62,8 @@ export default function TrainerClientView({ params }: Props) {
   const [cwDate, setCwDate] = useState(() => new Date().toISOString().split('T')[0]);
   const [cwRec, setCwRec] = useState('');
   const [cwExercises, setCwExercises] = useState<DraftExercise[]>([]);
+  const [editingWorkoutId, setEditingWorkoutId] = useState<string | null>(null); // null = создание
+  const [editOriginalIds, setEditOriginalIds] = useState<string[]>([]);
 
   // Анкета атлета
   const [info, setInfo] = useState({ full_name: '', goal: '', height: '', weight: '', birth_date: '', injuries: '' });
@@ -250,7 +253,7 @@ export default function TrainerClientView({ params }: Props) {
     }
   };
 
-  // ── Конструктор новой тренировки ─────────────────────────────
+  // ── Конструктор / редактор тренировки ────────────────────────
   const addDraft = () => {
     setCwExercises((prev) => [
       ...prev,
@@ -273,6 +276,44 @@ export default function TrainerClientView({ params }: Props) {
     setCwDate(new Date().toISOString().split('T')[0]);
     setCwRec('');
     setCwExercises([]);
+    setEditingWorkoutId(null);
+    setEditOriginalIds([]);
+  };
+
+  const openCreate = () => {
+    resetCreate();
+    setShowCreate(true);
+  };
+
+  // Открыть существующую тренировку на редактирование (в т.ч. созданную клиентом).
+  const openEdit = async (w: Workout) => {
+    try {
+      const { data, error } = await supabase
+        .from('exercises')
+        .select('id, name, sets, reps, weight, trainer_comment, client_note')
+        .eq('workout_id', w.id);
+      if (error) throw error;
+      const drafts: DraftExercise[] = (data ?? []).map((ex) => ({
+        tempId: crypto.randomUUID(),
+        id: ex.id as string,
+        name: ex.name ?? '',
+        sets: ex.sets != null ? String(ex.sets) : '',
+        reps: ex.reps ?? '',
+        weight: ex.weight != null ? String(ex.weight) : '',
+        trainerComment: ex.trainer_comment ?? '',
+        clientNote: ex.client_note ?? '',
+      }));
+      setCwTitle(w.title);
+      setCwDate(w.workout_date);
+      setCwRec(w.recommendation ?? '');
+      setCwExercises(drafts);
+      setEditOriginalIds(drafts.map((d) => d.id as string));
+      setEditingWorkoutId(w.id);
+      setShowCreate(true);
+    } catch (err) {
+      console.error('Ошибка открытия тренировки:', err);
+      toast.error('Не удалось открыть на редактирование');
+    }
   };
 
   const handleCreateWorkout = async (e: React.FormEvent) => {
@@ -342,6 +383,96 @@ export default function TrainerClientView({ params }: Props) {
     }
   };
 
+  // Редактирование существующей тренировки: update тренировки + синхронизация упражнений.
+  const handleUpdateWorkout = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingWorkoutId) return;
+    if (!cwTitle.trim() || !cwDate) {
+      toast.error('Укажите название и дату');
+      return;
+    }
+    setSaving(true);
+    try {
+      const { error: wErr } = await withRetry(() =>
+        supabase
+          .from('workouts')
+          .update({
+            title: cwTitle.trim(),
+            workout_date: cwDate,
+            recommendation: cwRec.trim() || null,
+          })
+          .eq('id', editingWorkoutId)
+      );
+      if (wErr) throw wErr;
+
+      const filled = cwExercises.filter((d) => d.name.trim());
+
+      // Обновляем существующие упражнения
+      for (const d of filled.filter((d) => d.id)) {
+        const { error } = await withRetry(() =>
+          supabase
+            .from('exercises')
+            .update({
+              name: d.name.trim(),
+              sets: Number(d.sets) || 0,
+              reps: d.reps.trim(),
+              weight: d.weight.trim() === '' ? null : Number(d.weight),
+              trainer_comment: d.trainerComment.trim() || null,
+              client_note: d.clientNote.trim() || null,
+            })
+            .eq('id', d.id as string)
+        );
+        if (error) throw error;
+      }
+
+      // Вставляем новые
+      const newRows = filled
+        .filter((d) => !d.id)
+        .map((d) => ({
+          workout_id: editingWorkoutId,
+          name: d.name.trim(),
+          sets: Number(d.sets) || 0,
+          reps: d.reps.trim(),
+          weight: d.weight.trim() === '' ? null : Number(d.weight),
+          trainer_comment: d.trainerComment.trim() || null,
+          client_note: d.clientNote.trim() || null,
+        }));
+      if (newRows.length > 0) {
+        const { error } = await withRetry(() => supabase.from('exercises').insert(newRows));
+        if (error) throw error;
+      }
+
+      // Удаляем убранные (были в оригинале, но их нет среди заполненных с id)
+      const keepIds = new Set(filled.filter((d) => d.id).map((d) => d.id as string));
+      const toDelete = editOriginalIds.filter((id) => !keepIds.has(id));
+      if (toDelete.length > 0) {
+        const { error } = await withRetry(() => supabase.from('exercises').delete().in('id', toDelete));
+        if (error) throw error;
+      }
+
+      // Рефетч + переселект отредактированной (перезагрузит упражнения через эффект)
+      const fresh = await loadClientWorkouts();
+      if (fresh) {
+        setWorkouts(fresh);
+        setSelectedWorkout(fresh.find((w) => w.id === editingWorkoutId) ?? null);
+      }
+
+      toast.success('Тренировка обновлена');
+      resetCreate();
+      setShowCreate(false);
+    } catch (err) {
+      console.error('Ошибка обновления тренировки:', err);
+      toast.error('Не удалось обновить тренировку');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleSubmitWorkout = (e: React.FormEvent) => {
+    if (editingWorkoutId) return handleUpdateWorkout(e);
+    return handleCreateWorkout(e);
+  };
+
   if (loading) {
     return (
       <div className="text-center text-xs text-[#989AA0] py-16 uppercase tracking-widest animate-pulse">
@@ -364,7 +495,7 @@ export default function TrainerClientView({ params }: Props) {
         </Link>
         <button
           type="button"
-          onClick={() => setShowCreate(true)}
+          onClick={openCreate}
           className="flex items-center gap-1 text-[10px] font-black uppercase tracking-wider bg-[#00E676] text-black px-3 py-1.5 rounded-lg hover:bg-[#00c765] transition-colors"
         >
           <Plus className="w-3.5 h-3.5" /> Тренировка
@@ -459,10 +590,19 @@ export default function TrainerClientView({ params }: Props) {
         <div className="md:col-span-2 bg-[#111214] border border-[#1C1C1E] rounded-2xl p-5 space-y-4">
           {selectedWorkout ? (
             <>
-              <h2 className="text-xs font-bold text-[#00E676] uppercase tracking-wider flex items-center gap-2">
-                <span className="w-1.5 h-3 bg-[#00E676] rounded-full"></span>
-                Комплекс: {selectedWorkout.title}
-              </h2>
+              <div className="flex items-center justify-between gap-2">
+                <h2 className="text-xs font-bold text-[#00E676] uppercase tracking-wider flex items-center gap-2 min-w-0">
+                  <span className="w-1.5 h-3 bg-[#00E676] rounded-full shrink-0"></span>
+                  <span className="truncate">Комплекс: {selectedWorkout.title}</span>
+                </h2>
+                <button
+                  type="button"
+                  onClick={() => openEdit(selectedWorkout)}
+                  className="shrink-0 flex items-center gap-1 text-[9px] font-black uppercase tracking-wider text-[#989AA0] hover:text-white"
+                >
+                  <Pencil className="w-3.5 h-3.5" /> Изменить
+                </button>
+              </div>
 
               {selectedWorkout.recommendation && (
                 <div className="bg-[#0A0A0A] border border-[#1C1C1E] rounded-lg p-3 text-[11px] text-gray-300">
@@ -541,7 +681,9 @@ export default function TrainerClientView({ params }: Props) {
         <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/70 p-4 overflow-y-auto">
           <div className="w-full max-w-lg my-8 rounded-2xl border border-[#262626] bg-[#111214] p-5 space-y-4">
             <div className="flex items-center justify-between">
-              <h3 className="text-xs font-black uppercase tracking-widest text-white">Новая тренировка</h3>
+              <h3 className="text-xs font-black uppercase tracking-widest text-white">
+                {editingWorkoutId ? 'Редактировать тренировку' : 'Новая тренировка'}
+              </h3>
               <button
                 type="button"
                 onClick={() => {
@@ -554,7 +696,7 @@ export default function TrainerClientView({ params }: Props) {
               </button>
             </div>
 
-            <form onSubmit={handleCreateWorkout} className="space-y-4">
+            <form onSubmit={handleSubmitWorkout} className="space-y-4">
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1.5 col-span-2 sm:col-span-1">
                   <label className="block text-[8px] font-bold uppercase tracking-[0.2em] text-[#989AA0]">
@@ -670,7 +812,11 @@ export default function TrainerClientView({ params }: Props) {
                 disabled={saving}
                 className="w-full bg-[#00E676] text-black font-black py-3 rounded-xl text-[10px] uppercase tracking-widest disabled:opacity-50"
               >
-                {saving ? 'Создание...' : 'Создать тренировку'}
+                {saving
+                  ? 'Сохранение...'
+                  : editingWorkoutId
+                    ? 'Сохранить изменения'
+                    : 'Создать тренировку'}
               </button>
             </form>
           </div>
