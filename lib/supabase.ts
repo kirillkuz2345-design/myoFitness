@@ -3,14 +3,38 @@ import { createBrowserClient } from '@supabase/ssr';
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
-// Явно падаем при отсутствии конфигурации, чтобы не создавать клиент
-// с пустым URL и не ловить криптовые рантайм-ошибки позже.
-if (!supabaseUrl || !supabaseAnonKey) {
-  throw new Error(
-    'Supabase env vars missing: NEXT_PUBLIC_SUPABASE_URL / NEXT_PUBLIC_SUPABASE_ANON_KEY'
-  );
+// Не бросаем при импорте модуля — создаём клиент лениво при первом обращении.
+// Это предотвращает падение сборки/SSR если env-переменные не заданы в окружении сборки.
+let _client: ReturnType<typeof createBrowserClient> | null = null;
+
+function ensureBrowser() {
+  if (typeof window === 'undefined') {
+    throw new Error('Supabase browser client can only be used in the browser.');
+  }
 }
 
-// createBrowserClient stores the auth session in cookies (sb-*) instead of
-// localStorage, so the Next.js middleware can read it on server-side requests.
-export const supabase = createBrowserClient(supabaseUrl, supabaseAnonKey);
+export function getSupabaseClient() {
+  if (!_client) {
+    ensureBrowser();
+    if (!supabaseUrl || !supabaseAnonKey) {
+      throw new Error(
+        'Supabase env vars missing: NEXT_PUBLIC_SUPABASE_URL / NEXT_PUBLIC_SUPABASE_ANON_KEY'
+      );
+    }
+    _client = createBrowserClient(supabaseUrl, supabaseAnonKey);
+  }
+  return _client;
+}
+
+// Экспортируем прокси, чтобы существующий код `import { supabase } from '@/lib/supabase'`
+// продолжал работать. Прокси лениво инициализирует клиент при первом доступе к свойству.
+const supabase = new Proxy({} as ReturnType<typeof createBrowserClient>, {
+  get(_, prop) {
+    // @ts-ignore
+    return (getSupabaseClient() as any)[prop];
+  },
+  // В случаях вызова функций напрямую (например supabase.from(...))
+  // прокси корректно делегирует вызов.
+});
+
+export { supabase };
