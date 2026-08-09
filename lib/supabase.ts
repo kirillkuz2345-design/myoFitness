@@ -1,11 +1,12 @@
 import { createBrowserClient } from '@supabase/ssr';
+import type { SupabaseClient } from '@supabase/supabase-js';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
 // Не бросаем при импорте модуля — создаём клиент лениво при первом обращении.
 // Это предотвращает падение сборки/SSR если env-переменные не заданы в окружении сборки.
-let _client: ReturnType<typeof createBrowserClient> | null = null;
+let _client: SupabaseClient | null = null;
 
 function ensureBrowser() {
   if (typeof window === 'undefined') {
@@ -28,7 +29,7 @@ export function getSupabaseClient() {
 
 // Экспортируем прокси, чтобы существующий код `import { supabase } from '@/lib/supabase'`
 // продолжал работать. Прокси лениво инициализирует клиент при первом доступе к свойству.
-const supabase = new Proxy({} as ReturnType<typeof createBrowserClient>, {
+const supabase = new Proxy({} as SupabaseClient, {
   get(_, prop) {
     // @ts-ignore
     return (getSupabaseClient() as any)[prop];
