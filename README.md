@@ -1,36 +1,43 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# NAORE Fitness
 
-## Getting Started
+Премиум фитнес-приложение для тренеров и атлетов: конструктор тренировок, аналитика, чат тренер↔клиент. Next.js (App Router) + Supabase, работает как PWA.
 
-First, run the development server:
+## Стек
+
+- **Next.js 16** (App Router) + **TypeScript**
+- **TailwindCSS** — оформление, тёмная тема
+- **Supabase** через `@supabase/ssr` — аутентификация и данные
+- **Vercel** — хостинг
+
+## Environment
+
+Приложению нужны две публичные переменные окружения:
+
+| Переменная | Назначение | Где взять |
+|---|---|---|
+| `NEXT_PUBLIC_SUPABASE_URL` | URL проекта Supabase | Supabase Dashboard → Project Settings → API |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Публичный anon/publishable ключ | Supabase Dashboard → Project Settings → API |
+
+Шаблон — в [`.env.example`](./.env.example).
+
+> **Про ключи.** На фронтенде используется только **anon / publishable** ключ — он безопасен для клиента, доступ к данным ограничен политиками **Row Level Security** на стороне Supabase. Ключ **`service_role` в проекте не используется** и никогда не должен попадать в клиентский код или в `NEXT_PUBLIC_*`.
+
+## Локальный запуск
 
 ```bash
+cp .env.example .env.local   # затем впишите свои значения
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Откройте [http://localhost:3000](http://localhost:3000).
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Auth-модель (кратко)
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+- Сессия создаётся через `@supabase/ssr` (`createBrowserClient`), хранится в cookie `sb-*`.
+- `proxy.ts` защищает роуты `/client`, `/trainer`, `/settings`: при отсутствии сессионной cookie редиректит на `/login` (без сетевых вызовов — восстановление/рефреш сессии на клиенте).
+- Доступ к данным ограничен политиками **RLS** в Supabase (`auth.uid()`), а не только проверкой на фронте.
 
-## Learn More
+## Деплой
 
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Продакшн разворачивается на [Vercel](https://vercel.com). Те же env-переменные задаются в настройках проекта Vercel (Project Settings → Environment Variables).
