@@ -1,3 +1,10 @@
+// КОНТРАКТ: этот модуль — ТОЛЬКО для браузера (client-компоненты с "use client").
+// Здесь живёт browser-клиент Supabase (createBrowserClient), который пишет/читает
+// cookie сессии на клиенте. Импорт в серверный компонент запрещён: директива
+// `client-only` ниже уронит сборку с понятной ошибкой, если это произойдёт.
+// Серверного доступа к данным в проекте нет (нет API-роутов), защита — RLS в Supabase.
+// Если появится server-side доступ — заводить ОТДЕЛЬНЫЙ модуль (createServerClient), не этот.
+import 'client-only';
 import { createBrowserClient } from '@supabase/ssr';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
