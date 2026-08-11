@@ -40,6 +40,28 @@ interface Item {
   c: number;
 }
 
+type ErrorField = "name" | "grams" | "macros";
+type FormError = { field: ErrorField; msg: string } | null;
+
+// Нормализует ввод: обрезает пробелы и заменяет запятую на точку (RU-локаль).
+function normalizeNumeric(str: string): string {
+  return str.trim().replace(",", ".");
+}
+
+// Вес в граммах: строго положительное конечное число, иначе null.
+function parseGrams(str: string): number | null {
+  const n = Number(normalizeNumeric(str));
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+// Значение КБЖУ: пусто → 0 (не указано); иначе неотрицательное конечное число, иначе null.
+function parseNonNegative(str: string): number | null {
+  const t = normalizeNumeric(str);
+  if (t === "") return 0;
+  const n = Number(t);
+  return Number.isFinite(n) && n >= 0 ? n : null;
+}
+
 export default function KbjuCalculator() {
   const [items, setItems] = useState<Item[]>([]);
   const [mode, setMode] = useState<"preset" | "custom">("preset");
@@ -54,9 +76,20 @@ export default function KbjuCalculator() {
   const [cF, setCF] = useState("");
   const [cC, setCC] = useState("");
 
+  const [error, setError] = useState<FormError>(null);
+
+  const switchMode = (m: "preset" | "custom") => {
+    setMode(m);
+    setError(null);
+  };
+
   const addPreset = () => {
-    const g = Number(grams);
-    if (!g || g <= 0) return;
+    const g = parseGrams(grams);
+    if (g === null) {
+      setError({ field: "grams", msg: "Укажите вес в граммах — положительное число." });
+      return;
+    }
+    setError(null);
     const p = PRESETS[presetIdx];
     const factor = g / 100;
     setItems((prev) => [
@@ -75,8 +108,24 @@ export default function KbjuCalculator() {
   };
 
   const addCustom = () => {
-    const g = Number(grams);
-    if (!cName.trim() || !g || g <= 0) return;
+    if (!cName.trim()) {
+      setError({ field: "name", msg: "Введите название продукта." });
+      return;
+    }
+    const g = parseGrams(grams);
+    if (g === null) {
+      setError({ field: "grams", msg: "Укажите вес в граммах — положительное число." });
+      return;
+    }
+    const kcal = parseNonNegative(cKcal);
+    const p = parseNonNegative(cP);
+    const f = parseNonNegative(cF);
+    const c = parseNonNegative(cC);
+    if (kcal === null || p === null || f === null || c === null) {
+      setError({ field: "macros", msg: "КБЖУ должны быть неотрицательными числами." });
+      return;
+    }
+    setError(null);
     const factor = g / 100;
     setItems((prev) => [
       ...prev,
@@ -84,10 +133,10 @@ export default function KbjuCalculator() {
         id: crypto.randomUUID(),
         name: cName.trim(),
         grams: g,
-        kcal: (Number(cKcal) || 0) * factor,
-        p: (Number(cP) || 0) * factor,
-        f: (Number(cF) || 0) * factor,
-        c: (Number(cC) || 0) * factor,
+        kcal: kcal * factor,
+        p: p * factor,
+        f: f * factor,
+        c: c * factor,
       },
     ]);
     setCName("");
@@ -107,7 +156,9 @@ export default function KbjuCalculator() {
   const r = (n: number) => Math.round(n * 10) / 10;
 
   const inputCls =
-    "w-full bg-[#0A0A0A] border border-[#1C1C1E] rounded-lg px-3 py-2.5 text-xs text-white outline-none focus:border-[#00E676]";
+    "w-full bg-[#0A0A0A] border border-[#1C1C1E] rounded-lg px-3 py-2.5 text-xs text-white outline-none focus:border-[#00E676] focus-visible:ring-1 focus-visible:ring-[#00E676]/50";
+  const errCls = "border-rose-500/60 focus:border-rose-500";
+  const describedBy = error ? "kbju-error" : undefined;
 
   return (
     <div className="space-y-4">
@@ -125,8 +176,9 @@ export default function KbjuCalculator() {
           <button
             key={m}
             type="button"
-            onClick={() => setMode(m)}
-            className={`py-2 rounded-md text-[9px] font-bold uppercase tracking-wider transition-colors ${
+            onClick={() => switchMode(m)}
+            aria-pressed={mode === m}
+            className={`py-2 rounded-md text-[9px] font-bold uppercase tracking-wider transition-colors focus-visible:ring-1 focus-visible:ring-[#00E676]/50 ${
               mode === m ? "bg-[#00E676] text-black" : "text-[#989AA0]"
             }`}
           >
@@ -138,21 +190,95 @@ export default function KbjuCalculator() {
       {/* Форма добавления */}
       <div className="rounded-2xl border border-[#1C1C1E] bg-[#111214] p-4 space-y-3">
         {mode === "preset" ? (
-          <select value={presetIdx} onChange={(e) => setPresetIdx(Number(e.target.value))} className={inputCls}>
-            {PRESETS.map((p, i) => (
-              <option key={p.name} value={i}>
-                {p.name} · {p.kcal} ккал/100г
-              </option>
-            ))}
-          </select>
+          <>
+            <label htmlFor="kbju-preset" className="sr-only">
+              Продукт из списка
+            </label>
+            <select
+              id="kbju-preset"
+              value={presetIdx}
+              onChange={(e) => setPresetIdx(Number(e.target.value))}
+              className={inputCls}
+            >
+              {PRESETS.map((p, i) => (
+                <option key={p.name} value={i}>
+                  {p.name} · {p.kcal} ккал/100г
+                </option>
+              ))}
+            </select>
+          </>
         ) : (
           <div className="space-y-2">
-            <input value={cName} onChange={(e) => setCName(e.target.value)} placeholder="Название продукта" className={inputCls} />
+            <label htmlFor="kbju-name" className="sr-only">
+              Название продукта
+            </label>
+            <input
+              id="kbju-name"
+              value={cName}
+              onChange={(e) => setCName(e.target.value)}
+              placeholder="Название продукта"
+              aria-invalid={error?.field === "name" || undefined}
+              aria-describedby={error?.field === "name" ? describedBy : undefined}
+              className={`${inputCls} ${error?.field === "name" ? errCls : ""}`}
+            />
             <div className="grid grid-cols-4 gap-2">
-              <input value={cKcal} onChange={(e) => setCKcal(e.target.value)} inputMode="decimal" placeholder="ккал" className={inputCls} />
-              <input value={cP} onChange={(e) => setCP(e.target.value)} inputMode="decimal" placeholder="Б" className={inputCls} />
-              <input value={cF} onChange={(e) => setCF(e.target.value)} inputMode="decimal" placeholder="Ж" className={inputCls} />
-              <input value={cC} onChange={(e) => setCC(e.target.value)} inputMode="decimal" placeholder="У" className={inputCls} />
+              <div>
+                <label htmlFor="kbju-kcal" className="sr-only">
+                  Калории на 100 г
+                </label>
+                <input
+                  id="kbju-kcal"
+                  value={cKcal}
+                  onChange={(e) => setCKcal(e.target.value)}
+                  inputMode="decimal"
+                  placeholder="ккал"
+                  aria-invalid={error?.field === "macros" || undefined}
+                  aria-describedby={error?.field === "macros" ? describedBy : undefined}
+                  className={`${inputCls} ${error?.field === "macros" ? errCls : ""}`}
+                />
+              </div>
+              <div>
+                <label htmlFor="kbju-p" className="sr-only">
+                  Белки на 100 г
+                </label>
+                <input
+                  id="kbju-p"
+                  value={cP}
+                  onChange={(e) => setCP(e.target.value)}
+                  inputMode="decimal"
+                  placeholder="Б"
+                  aria-invalid={error?.field === "macros" || undefined}
+                  className={`${inputCls} ${error?.field === "macros" ? errCls : ""}`}
+                />
+              </div>
+              <div>
+                <label htmlFor="kbju-f" className="sr-only">
+                  Жиры на 100 г
+                </label>
+                <input
+                  id="kbju-f"
+                  value={cF}
+                  onChange={(e) => setCF(e.target.value)}
+                  inputMode="decimal"
+                  placeholder="Ж"
+                  aria-invalid={error?.field === "macros" || undefined}
+                  className={`${inputCls} ${error?.field === "macros" ? errCls : ""}`}
+                />
+              </div>
+              <div>
+                <label htmlFor="kbju-c" className="sr-only">
+                  Углеводы на 100 г
+                </label>
+                <input
+                  id="kbju-c"
+                  value={cC}
+                  onChange={(e) => setCC(e.target.value)}
+                  inputMode="decimal"
+                  placeholder="У"
+                  aria-invalid={error?.field === "macros" || undefined}
+                  className={`${inputCls} ${error?.field === "macros" ? errCls : ""}`}
+                />
+              </div>
             </div>
             <p className="text-[8px] text-zinc-600 uppercase tracking-wider">Значения на 100 г</p>
           </div>
@@ -160,22 +286,34 @@ export default function KbjuCalculator() {
 
         <div className="flex gap-2">
           <div className="flex-1">
+            <label htmlFor="kbju-grams" className="sr-only">
+              Вес в граммах
+            </label>
             <input
+              id="kbju-grams"
               value={grams}
               onChange={(e) => setGrams(e.target.value)}
               inputMode="numeric"
               placeholder="Граммы"
-              className={inputCls}
+              aria-invalid={error?.field === "grams" || undefined}
+              aria-describedby={error?.field === "grams" ? describedBy : undefined}
+              className={`${inputCls} ${error?.field === "grams" ? errCls : ""}`}
             />
           </div>
           <button
             type="button"
             onClick={mode === "preset" ? addPreset : addCustom}
-            className="flex items-center gap-1 bg-[#00E676] text-black font-black px-4 rounded-lg text-[10px] uppercase tracking-wider hover:bg-[#00c765] transition-colors"
+            className="flex items-center gap-1 bg-[#00E676] text-black font-black px-4 rounded-lg text-[10px] uppercase tracking-wider hover:bg-[#00c765] transition-colors focus-visible:ring-1 focus-visible:ring-[#00E676]/50"
           >
             <Plus className="w-3.5 h-3.5" /> Добавить
           </button>
         </div>
+
+        {error && (
+          <p id="kbju-error" role="alert" className="text-[10px] text-rose-400">
+            {error.msg}
+          </p>
+        )}
       </div>
 
       {/* Список */}
@@ -194,8 +332,8 @@ export default function KbjuCalculator() {
               <button
                 type="button"
                 onClick={() => remove(i.id)}
-                aria-label="Удалить"
-                className="text-zinc-600 hover:text-rose-500 shrink-0"
+                aria-label={`Удалить ${i.name}`}
+                className="text-zinc-600 hover:text-rose-500 shrink-0 focus-visible:ring-1 focus-visible:ring-rose-500/50 rounded"
               >
                 <Trash2 className="w-3.5 h-3.5" />
               </button>
