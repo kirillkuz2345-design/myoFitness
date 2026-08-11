@@ -5,6 +5,7 @@ import React, { useCallback, useEffect, useState, use } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { withRetry } from "@/lib/dbRetry";
+import { safeUUID } from "@/lib/uuid";
 import { useAuth } from "@/providers/AuthProvider";
 import toast from "react-hot-toast";
 import { ArrowLeft, Pencil, Plus, X, Trash2 } from "lucide-react";
@@ -133,7 +134,7 @@ export default function ClientWorkoutDetail({ params }: { params: Promise<{ id: 
     setETitle(workout.title);
     setEDate(workout.workout_date);
     const drafts: DraftExercise[] = exercises.map((ex) => ({
-      tempId: crypto.randomUUID(),
+      tempId: safeUUID(),
       id: ex.id,
       name: ex.name,
       sets: ex.sets != null ? String(ex.sets) : "",
@@ -146,7 +147,7 @@ export default function ClientWorkoutDetail({ params }: { params: Promise<{ id: 
   };
 
   const addEx = () =>
-    setEEx((prev) => [...prev, { tempId: crypto.randomUUID(), name: "", sets: "", reps: "", weight: "" }]);
+    setEEx((prev) => [...prev, { tempId: safeUUID(), name: "", sets: "", reps: "", weight: "" }]);
   const removeEx = (tempId: string) => setEEx((prev) => prev.filter((d) => d.tempId !== tempId));
   const updEx = (tempId: string, field: keyof Omit<DraftExercise, "tempId" | "id">, value: string) =>
     setEEx((prev) => prev.map((d) => (d.tempId === tempId ? { ...d, [field]: value } : d)));

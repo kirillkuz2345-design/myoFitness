@@ -4,6 +4,7 @@
 import React, { useState } from "react";
 import { Sparkles, Plus, Trash2 } from "lucide-react";
 import { parseGrams, parseNonNegative } from "@/lib/nutrition";
+import { safeUUID } from "@/lib/uuid";
 
 interface FoodPreset {
   name: string;
@@ -77,7 +78,7 @@ export default function KbjuCalculator() {
     setItems((prev) => [
       ...prev,
       {
-        id: crypto.randomUUID(),
+        id: safeUUID(),
         name: p.name,
         grams: g,
         kcal: p.kcal * factor,
@@ -112,7 +113,7 @@ export default function KbjuCalculator() {
     setItems((prev) => [
       ...prev,
       {
-        id: crypto.randomUUID(),
+        id: safeUUID(),
         name: cName.trim(),
         grams: g,
         kcal: kcal * factor,

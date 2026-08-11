@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { useAuth } from "@/providers/AuthProvider";
 import { supabase } from "@/lib/supabase";
 import { withRetry } from "@/lib/dbRetry";
+import { safeUUID } from "@/lib/uuid";
 import toast from "react-hot-toast";
 import { ChevronLeft, ChevronRight, Copy, X, Plus, Trash2 } from "lucide-react";
 
@@ -177,7 +178,7 @@ export default function TrainerCalendarPage() {
         .eq("workout_id", w.id);
       if (error) throw error;
       const drafts: DraftExercise[] = (data ?? []).map((ex) => ({
-        tempId: crypto.randomUUID(),
+        tempId: safeUUID(),
         name: ex.name ?? "",
         sets: ex.sets != null ? String(ex.sets) : "",
         reps: ex.reps ?? "",
@@ -202,7 +203,7 @@ export default function TrainerCalendarPage() {
   const addDraft = () => {
     setCpExercises((prev) => [
       ...prev,
-      { tempId: crypto.randomUUID(), name: "", sets: "", reps: "", weight: "", trainerComment: "", clientNote: "" },
+      { tempId: safeUUID(), name: "", sets: "", reps: "", weight: "", trainerComment: "", clientNote: "" },
     ]);
   };
   const removeDraft = (tempId: string) => {

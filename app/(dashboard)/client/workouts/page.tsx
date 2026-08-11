@@ -7,6 +7,7 @@ import { Card, Button, Input } from "@/components/ui/myo";
 import { useAuth } from "@/providers/AuthProvider";
 import { supabase } from "@/lib/supabase";
 import { withRetry } from "@/lib/dbRetry";
+import { safeUUID } from "@/lib/uuid";
 import toast from "react-hot-toast";
 import { Dumbbell, Calendar, Trash2, ChevronRight } from "lucide-react";
 
@@ -66,7 +67,7 @@ export default function MyoPlannerDashboard() {
   const addExercise = () => {
     setExercises((prev) => [
       ...prev,
-      { id: crypto.randomUUID(), name: "", sets: "", reps: "", weight: "", trainerComment: "", clientNote: "" },
+      { id: safeUUID(), name: "", sets: "", reps: "", weight: "", trainerComment: "", clientNote: "" },
     ]);
   };
 

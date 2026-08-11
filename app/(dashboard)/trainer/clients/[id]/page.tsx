@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, use } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 import { withRetry } from '@/lib/dbRetry';
+import { safeUUID } from '@/lib/uuid';
 import { useAuth } from '@/providers/AuthProvider';
 import { ArrowLeft, Save, Plus, X, Trash2, ClipboardList, Pencil } from 'lucide-react';
 import Link from 'next/link';
@@ -257,7 +258,7 @@ export default function TrainerClientView({ params }: Props) {
   const addDraft = () => {
     setCwExercises((prev) => [
       ...prev,
-      { tempId: crypto.randomUUID(), name: '', sets: '', reps: '', weight: '', trainerComment: '', clientNote: '' },
+      { tempId: safeUUID(), name: '', sets: '', reps: '', weight: '', trainerComment: '', clientNote: '' },
     ]);
   };
 
@@ -294,7 +295,7 @@ export default function TrainerClientView({ params }: Props) {
         .eq('workout_id', w.id);
       if (error) throw error;
       const drafts: DraftExercise[] = (data ?? []).map((ex) => ({
-        tempId: crypto.randomUUID(),
+        tempId: safeUUID(),
         id: ex.id as string,
         name: ex.name ?? '',
         sets: ex.sets != null ? String(ex.sets) : '',
