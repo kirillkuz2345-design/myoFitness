@@ -8,7 +8,7 @@ const NET_HINTS = ["fetch", "network", "timeout", "connection", "failed to fetch
 // Общий бюджет времени на все повторы (мс) — чтобы не задерживать UI надолго.
 const MAX_TOTAL_MS = 8000;
 
-function isTransient(error: PostgrestError | null): boolean {
+export function isTransient(error: PostgrestError | null): boolean {
   if (!error) return false;
   if (error.code) return false; // есть код БД → постоянная ошибка, не ретраим
   const msg = (error.message ?? "").toLowerCase();

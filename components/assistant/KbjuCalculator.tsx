@@ -3,6 +3,7 @@
 
 import React, { useState } from "react";
 import { Sparkles, Plus, Trash2 } from "lucide-react";
+import { parseGrams, parseNonNegative } from "@/lib/nutrition";
 
 interface FoodPreset {
   name: string;
@@ -42,25 +43,6 @@ interface Item {
 
 type ErrorField = "name" | "grams" | "macros";
 type FormError = { field: ErrorField; msg: string } | null;
-
-// Нормализует ввод: обрезает пробелы и заменяет запятую на точку (RU-локаль).
-function normalizeNumeric(str: string): string {
-  return str.trim().replace(",", ".");
-}
-
-// Вес в граммах: строго положительное конечное число, иначе null.
-function parseGrams(str: string): number | null {
-  const n = Number(normalizeNumeric(str));
-  return Number.isFinite(n) && n > 0 ? n : null;
-}
-
-// Значение КБЖУ: пусто → 0 (не указано); иначе неотрицательное конечное число, иначе null.
-function parseNonNegative(str: string): number | null {
-  const t = normalizeNumeric(str);
-  if (t === "") return 0;
-  const n = Number(t);
-  return Number.isFinite(n) && n >= 0 ? n : null;
-}
 
 export default function KbjuCalculator() {
   const [items, setItems] = useState<Item[]>([]);

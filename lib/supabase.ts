@@ -38,8 +38,8 @@ export function getSupabaseClient() {
 // продолжал работать. Прокси лениво инициализирует клиент при первом доступе к свойству.
 const supabase = new Proxy({} as SupabaseClient, {
   get(_, prop) {
-    // @ts-ignore
-    return (getSupabaseClient() as any)[prop];
+    const client = getSupabaseClient();
+    return client[prop as keyof typeof client];
   },
   // В случаях вызова функций напрямую (например supabase.from(...))
   // прокси корректно делегирует вызов.
