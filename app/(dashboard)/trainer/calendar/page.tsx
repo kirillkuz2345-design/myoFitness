@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { useAuth } from "@/providers/AuthProvider";
 import { supabase } from "@/lib/supabase";
 import { withRetry } from "@/lib/dbRetry";
-import { toDraftSets, buildSetsPayload, emptyDraftSet, type DraftSetInput } from "@/lib/exerciseSets";
+import { toDraftSets, buildSetsPayload, emptyDraftSet, newId, type DraftSetInput } from "@/lib/exerciseSets";
 import SetsEditor from "@/components/workout/SetsEditor";
 import toast from "react-hot-toast";
 import { ChevronLeft, ChevronRight, Copy, X, Plus, Trash2 } from "lucide-react";
@@ -177,7 +177,7 @@ export default function TrainerCalendarPage() {
         .eq("workout_id", w.id);
       if (error) throw error;
       const drafts: DraftExercise[] = (data ?? []).map((ex) => ({
-        tempId: crypto.randomUUID(),
+        tempId: newId(),
         name: ex.name ?? "",
         sets: toDraftSets(ex),
         trainerComment: ex.trainer_comment ?? "",
@@ -200,7 +200,7 @@ export default function TrainerCalendarPage() {
   const addDraft = () => {
     setCpExercises((prev) => [
       ...prev,
-      { tempId: crypto.randomUUID(), name: "", sets: [emptyDraftSet()], trainerComment: "", clientNote: "" },
+      { tempId: newId(), name: "", sets: [emptyDraftSet()], trainerComment: "", clientNote: "" },
     ]);
   };
   const removeDraft = (tempId: string) => {

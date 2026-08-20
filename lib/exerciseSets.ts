@@ -8,6 +8,17 @@ export interface SetEntry {
   weight: number | null;
 }
 
+// Безопасный UUID: crypto.randomUUID отсутствует на старом iOS Safari (< 15.4).
+export function newId(): string {
+  const c = globalThis.crypto as Crypto | undefined;
+  if (c && typeof c.randomUUID === "function") return c.randomUUID();
+  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (ch) => {
+    const r = (Math.random() * 16) | 0;
+    const v = ch === "x" ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
+  });
+}
+
 // Ввод в конструкторе (строки, т.к. это значения инпутов).
 export interface DraftSetInput {
   reps: string;

@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { useAuth } from "@/providers/AuthProvider";
 import { supabase } from "@/lib/supabase";
 import { withRetry } from "@/lib/dbRetry";
-import { toDraftSets, buildSetsPayload, emptyDraftSet, type DraftSetInput } from "@/lib/exerciseSets";
+import { toDraftSets, buildSetsPayload, emptyDraftSet, newId, type DraftSetInput } from "@/lib/exerciseSets";
 import SetsEditor from "@/components/workout/SetsEditor";
 import toast from "react-hot-toast";
 import { Plus, X, Trash2, Pencil, Send, LayoutTemplate } from "lucide-react";
@@ -116,7 +116,7 @@ export default function TrainerTemplatesPage() {
         .order("position", { ascending: true });
       if (error) throw error;
       const drafts: DraftExercise[] = (data ?? []).map((ex) => ({
-        tempId: crypto.randomUUID(),
+        tempId: newId(),
         id: ex.id as string,
         name: ex.name ?? "",
         sets: toDraftSets(ex),
@@ -134,7 +134,7 @@ export default function TrainerTemplatesPage() {
     }
   };
 
-  const addEx = () => setTEx((p) => [...p, { tempId: crypto.randomUUID(), name: "", sets: [emptyDraftSet()], trainerComment: "" }]);
+  const addEx = () => setTEx((p) => [...p, { tempId: newId(), name: "", sets: [emptyDraftSet()], trainerComment: "" }]);
   const removeEx = (tempId: string) => setTEx((p) => p.filter((d) => d.tempId !== tempId));
   const updName = (tempId: string, v: string) => setTEx((p) => p.map((d) => (d.tempId === tempId ? { ...d, name: v } : d)));
   const updComment = (tempId: string, v: string) => setTEx((p) => p.map((d) => (d.tempId === tempId ? { ...d, trainerComment: v } : d)));

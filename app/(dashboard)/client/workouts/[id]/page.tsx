@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { withRetry } from "@/lib/dbRetry";
 import { useAuth } from "@/providers/AuthProvider";
-import { toDraftSets, buildSetsPayload, toSetEntries, emptyDraftSet, type DraftSetInput } from "@/lib/exerciseSets";
+import { toDraftSets, buildSetsPayload, toSetEntries, emptyDraftSet, newId, type DraftSetInput } from "@/lib/exerciseSets";
 import SetsEditor from "@/components/workout/SetsEditor";
 import toast from "react-hot-toast";
 import { ArrowLeft, Pencil, Plus, X, Trash2, Check } from "lucide-react";
@@ -130,7 +130,7 @@ export default function ClientWorkoutDetail({ params }: { params: Promise<{ id: 
     setETitle(workout.title);
     setEDate(workout.workout_date);
     const drafts: DraftExercise[] = exercises.map((ex) => ({
-      tempId: crypto.randomUUID(),
+      tempId: newId(),
       id: ex.id,
       name: ex.name,
       sets: toDraftSets(ex),
@@ -140,7 +140,7 @@ export default function ClientWorkoutDetail({ params }: { params: Promise<{ id: 
     setShowEdit(true);
   };
 
-  const addEx = () => setEEx((prev) => [...prev, { tempId: crypto.randomUUID(), name: "", sets: [emptyDraftSet()] }]);
+  const addEx = () => setEEx((prev) => [...prev, { tempId: newId(), name: "", sets: [emptyDraftSet()] }]);
   const removeEx = (tempId: string) => setEEx((prev) => prev.filter((d) => d.tempId !== tempId));
   const updName = (tempId: string, name: string) =>
     setEEx((prev) => prev.map((d) => (d.tempId === tempId ? { ...d, name } : d)));

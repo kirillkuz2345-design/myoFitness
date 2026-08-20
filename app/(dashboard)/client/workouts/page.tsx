@@ -7,7 +7,7 @@ import { Card, Button, Input } from "@/components/ui/myo";
 import { useAuth } from "@/providers/AuthProvider";
 import { supabase } from "@/lib/supabase";
 import { withRetry } from "@/lib/dbRetry";
-import { buildSetsPayload, emptyDraftSet, type DraftSetInput } from "@/lib/exerciseSets";
+import { buildSetsPayload, emptyDraftSet, newId, type DraftSetInput } from "@/lib/exerciseSets";
 import SetsEditor from "@/components/workout/SetsEditor";
 import toast from "react-hot-toast";
 import { Dumbbell, Calendar, Trash2, ChevronRight } from "lucide-react";
@@ -62,7 +62,7 @@ export default function MyoPlannerDashboard() {
   }, [loadArchive, user]);
 
   const addExercise = () => {
-    setExercises((prev) => [...prev, { id: crypto.randomUUID(), name: "", sets: [emptyDraftSet()] }]);
+    setExercises((prev) => [...prev, { id: newId(), name: "", sets: [emptyDraftSet()] }]);
   };
   const removeExercise = (id: string) => setExercises((prev) => prev.filter((e) => e.id !== id));
   const updateName = (id: string, name: string) =>

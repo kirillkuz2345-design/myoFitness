@@ -11,6 +11,7 @@ import {
   buildSetsPayload,
   emptyDraftSet,
   summarizeSets,
+  newId,
   type DraftSetInput,
 } from '@/lib/exerciseSets';
 import SetsEditor from '@/components/workout/SetsEditor';
@@ -235,7 +236,7 @@ export default function TrainerClientView({ params }: Props) {
   const addDraft = () =>
     setCwExercises((prev) => [
       ...prev,
-      { tempId: crypto.randomUUID(), name: '', sets: [emptyDraftSet()], trainerComment: '', clientNote: '' },
+      { tempId: newId(), name: '', sets: [emptyDraftSet()], trainerComment: '', clientNote: '' },
     ]);
   const removeDraft = (tempId: string) => setCwExercises((prev) => prev.filter((d) => d.tempId !== tempId));
   const updateDraft = (tempId: string, field: 'name' | 'trainerComment' | 'clientNote', value: string) =>
@@ -273,7 +274,7 @@ export default function TrainerClientView({ params }: Props) {
         .eq('workout_id', w.id);
       if (error) throw error;
       const drafts: DraftExercise[] = (data ?? []).map((ex) => ({
-        tempId: crypto.randomUUID(),
+        tempId: newId(),
         id: ex.id as string,
         name: ex.name ?? '',
         sets: toDraftSets(ex),
