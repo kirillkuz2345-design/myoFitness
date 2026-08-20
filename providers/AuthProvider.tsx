@@ -10,6 +10,7 @@ import {
 } from "react";
 import type { User } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabase";
+import { withRetry } from "@/lib/dbRetry";
 
 // Роль нормализуется к lowercase при загрузке — единый каноничный регистр по всему приложению.
 export type LocalProfile = {
@@ -48,11 +49,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   async function loadProfileData(userId: string): Promise<LocalProfile | null> {
     try {
-      const { data, error } = await supabase
-        .from("profiles")
-        .select("id, full_name, role, trainer_id, avatar_url, height, weight")
-        .eq("id", userId)
-        .single();
+      const { data, error } = await withRetry(() =>
+        supabase
+          .from("profiles")
+          .select("id, full_name, role, trainer_id, avatar_url, height, weight")
+          .eq("id", userId)
+          .single(),
+      );
 
       if (error) {
         // PGRST116 = строка ещё не создана (лаг Postgres-триггера сразу после signUp).
