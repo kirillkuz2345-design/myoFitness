@@ -6,6 +6,8 @@ import { useRouter } from "next/navigation";
 import { useAuth } from "@/providers/AuthProvider";
 import { supabase } from "@/lib/supabase";
 import { withRetry } from "@/lib/dbRetry";
+import { toDraftSets, buildSetsPayload, emptyDraftSet, type DraftSetInput } from "@/lib/exerciseSets";
+import SetsEditor from "@/components/workout/SetsEditor";
 import toast from "react-hot-toast";
 import { ChevronLeft, ChevronRight, Copy, X, Plus, Trash2 } from "lucide-react";
 
@@ -24,9 +26,7 @@ interface Workout {
 interface DraftExercise {
   tempId: string;
   name: string;
-  sets: string;
-  reps: string;
-  weight: string;
+  sets: DraftSetInput[];
   trainerComment: string;
   clientNote: string;
 }
@@ -173,15 +173,13 @@ export default function TrainerCalendarPage() {
     try {
       const { data, error } = await supabase
         .from("exercises")
-        .select("name, sets, reps, weight, trainer_comment, client_note")
+        .select("name, sets, reps, weight, sets_data, trainer_comment, client_note")
         .eq("workout_id", w.id);
       if (error) throw error;
       const drafts: DraftExercise[] = (data ?? []).map((ex) => ({
         tempId: crypto.randomUUID(),
         name: ex.name ?? "",
-        sets: ex.sets != null ? String(ex.sets) : "",
-        reps: ex.reps ?? "",
-        weight: ex.weight != null ? String(ex.weight) : "",
+        sets: toDraftSets(ex),
         trainerComment: ex.trainer_comment ?? "",
         clientNote: ex.client_note ?? "",
       }));
@@ -196,18 +194,28 @@ export default function TrainerCalendarPage() {
     }
   };
 
-  const updateDraft = (tempId: string, field: keyof Omit<DraftExercise, "tempId">, value: string) => {
+  const updateDraft = (tempId: string, field: "name" | "trainerComment" | "clientNote", value: string) => {
     setCpExercises((prev) => prev.map((d) => (d.tempId === tempId ? { ...d, [field]: value } : d)));
   };
   const addDraft = () => {
     setCpExercises((prev) => [
       ...prev,
-      { tempId: crypto.randomUUID(), name: "", sets: "", reps: "", weight: "", trainerComment: "", clientNote: "" },
+      { tempId: crypto.randomUUID(), name: "", sets: [emptyDraftSet()], trainerComment: "", clientNote: "" },
     ]);
   };
   const removeDraft = (tempId: string) => {
     setCpExercises((prev) => prev.filter((d) => d.tempId !== tempId));
   };
+  const addSet = (tempId: string) =>
+    setCpExercises((prev) => prev.map((d) => (d.tempId === tempId ? { ...d, sets: [...d.sets, emptyDraftSet()] } : d)));
+  const removeSet = (tempId: string, i: number) =>
+    setCpExercises((prev) =>
+      prev.map((d) => (d.tempId === tempId && d.sets.length > 1 ? { ...d, sets: d.sets.filter((_, idx) => idx !== i) } : d))
+    );
+  const updateSet = (tempId: string, i: number, field: "reps" | "weight", value: string) =>
+    setCpExercises((prev) =>
+      prev.map((d) => (d.tempId === tempId ? { ...d, sets: d.sets.map((s, idx) => (idx === i ? { ...s, [field]: value } : s)) } : d))
+    );
 
   const saveCopy = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -242,9 +250,7 @@ export default function TrainerCalendarPage() {
         .map((d) => ({
           workout_id: newId,
           name: d.name.trim(),
-          sets: Number(d.sets) || 0,
-          reps: d.reps.trim(),
-          weight: d.weight.trim() === "" ? null : Number(d.weight),
+          ...buildSetsPayload(d.sets),
           trainer_comment: d.trainerComment.trim() || null,
           client_note: d.clientNote.trim() || null,
         }));
@@ -460,28 +466,12 @@ export default function TrainerCalendarPage() {
                         <Trash2 className="w-3.5 h-3.5" />
                       </button>
                     </div>
-                    <div className="grid grid-cols-3 gap-2">
-                      <input
-                        value={d.sets}
-                        onChange={(e) => updateDraft(d.tempId, "sets", e.target.value)}
-                        inputMode="numeric"
-                        placeholder="Подходы"
-                        className="bg-[#111214] border border-[#1C1C1E] rounded px-2 py-1.5 text-[11px] text-center text-white outline-none focus:border-[#00E676]"
-                      />
-                      <input
-                        value={d.reps}
-                        onChange={(e) => updateDraft(d.tempId, "reps", e.target.value)}
-                        placeholder="Повторы"
-                        className="bg-[#111214] border border-[#1C1C1E] rounded px-2 py-1.5 text-[11px] text-center text-white outline-none focus:border-[#00E676]"
-                      />
-                      <input
-                        value={d.weight}
-                        onChange={(e) => updateDraft(d.tempId, "weight", e.target.value)}
-                        inputMode="decimal"
-                        placeholder="Вес, кг"
-                        className="bg-[#111214] border border-[#1C1C1E] rounded px-2 py-1.5 text-[11px] text-center text-white outline-none focus:border-[#00E676]"
-                      />
-                    </div>
+                    <SetsEditor
+                      sets={d.sets}
+                      onAdd={() => addSet(d.tempId)}
+                      onRemove={(i) => removeSet(d.tempId, i)}
+                      onChange={(i, field, value) => updateSet(d.tempId, i, field, value)}
+                    />
                     <input
                       value={d.trainerComment}
                       onChange={(e) => updateDraft(d.tempId, "trainerComment", e.target.value)}

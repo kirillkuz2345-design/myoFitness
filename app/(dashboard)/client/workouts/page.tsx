@@ -7,17 +7,15 @@ import { Card, Button, Input } from "@/components/ui/myo";
 import { useAuth } from "@/providers/AuthProvider";
 import { supabase } from "@/lib/supabase";
 import { withRetry } from "@/lib/dbRetry";
+import { buildSetsPayload, emptyDraftSet, type DraftSetInput } from "@/lib/exerciseSets";
+import SetsEditor from "@/components/workout/SetsEditor";
 import toast from "react-hot-toast";
 import { Dumbbell, Calendar, Trash2, ChevronRight } from "lucide-react";
 
 interface DraftExercise {
   id: string;
   name: string;
-  sets: string;
-  reps: string;
-  weight: string;
-  trainerComment: string;
-  clientNote: string;
+  sets: DraftSetInput[];
 }
 
 interface WorkoutSummary {
@@ -64,19 +62,22 @@ export default function MyoPlannerDashboard() {
   }, [loadArchive, user]);
 
   const addExercise = () => {
-    setExercises((prev) => [
-      ...prev,
-      { id: crypto.randomUUID(), name: "", sets: "", reps: "", weight: "", trainerComment: "", clientNote: "" },
-    ]);
+    setExercises((prev) => [...prev, { id: crypto.randomUUID(), name: "", sets: [emptyDraftSet()] }]);
   };
+  const removeExercise = (id: string) => setExercises((prev) => prev.filter((e) => e.id !== id));
+  const updateName = (id: string, name: string) =>
+    setExercises((prev) => prev.map((e) => (e.id === id ? { ...e, name } : e)));
 
-  const removeExercise = (id: string) => {
-    setExercises((prev) => prev.filter((e) => e.id !== id));
-  };
-
-  const updateExercise = (id: string, field: keyof Omit<DraftExercise, "id">, value: string) => {
-    setExercises((prev) => prev.map((e) => (e.id === id ? { ...e, [field]: value } : e)));
-  };
+  const addSet = (id: string) =>
+    setExercises((prev) => prev.map((e) => (e.id === id ? { ...e, sets: [...e.sets, emptyDraftSet()] } : e)));
+  const removeSet = (id: string, i: number) =>
+    setExercises((prev) =>
+      prev.map((e) => (e.id === id && e.sets.length > 1 ? { ...e, sets: e.sets.filter((_, idx) => idx !== i) } : e))
+    );
+  const updateSet = (id: string, i: number, field: "reps" | "weight", value: string) =>
+    setExercises((prev) =>
+      prev.map((e) => (e.id === id ? { ...e, sets: e.sets.map((s, idx) => (idx === i ? { ...s, [field]: value } : s)) } : e))
+    );
 
   const handleSave = async () => {
     if (!workoutTitle.trim() || !selectedDate) {
@@ -89,7 +90,6 @@ export default function MyoPlannerDashboard() {
     }
     setSaving(true);
     try {
-      // 1. Тренировка от лица атлета (client_id = creator_id = сам)
       const { data: wRow, error: wErr } = await withRetry(() =>
         supabase
           .from("workouts")
@@ -102,21 +102,15 @@ export default function MyoPlannerDashboard() {
           .select("id")
           .single()
       );
-
       if (wErr) throw wErr;
       const newId: string = wRow.id;
 
-      // 2. Упражнения (только заполненные)
       const rows = exercises
         .filter((e) => e.name.trim())
         .map((e) => ({
           workout_id: newId,
           name: e.name.trim(),
-          sets: Number(e.sets) || 0,
-          reps: e.reps.trim(),
-          weight: e.weight.trim() === "" ? null : Number(e.weight),
-          trainer_comment: e.trainerComment.trim() || null,
-          client_note: e.clientNote.trim() || null,
+          ...buildSetsPayload(e.sets),
         }));
 
       if (rows.length > 0) {
@@ -162,9 +156,7 @@ export default function MyoPlannerDashboard() {
             >
               <div className="min-w-0">
                 <p className="text-xs font-bold text-white truncate">{w.title}</p>
-                <p className="text-[9px] font-bold text-[#989AA0] uppercase tracking-wider mt-0.5">
-                  {w.workout_date}
-                </p>
+                <p className="text-[9px] font-bold text-[#989AA0] uppercase tracking-wider mt-0.5">{w.workout_date}</p>
               </div>
               <ChevronRight className="w-4 h-4 text-[#989AA0] shrink-0" />
             </button>
@@ -172,9 +164,7 @@ export default function MyoPlannerDashboard() {
         </div>
       )}
 
-      <h2 className="text-[9px] font-bold uppercase tracking-[0.25em] text-[#989AA0]">
-        Конструктор тренировки
-      </h2>
+      <h2 className="text-[9px] font-bold uppercase tracking-[0.25em] text-[#989AA0]">Конструктор тренировки</h2>
 
       {/* Дата */}
       <Card className="p-4 border border-[#1C1C1E] space-y-3 rounded-2xl">
@@ -182,12 +172,7 @@ export default function MyoPlannerDashboard() {
           <Calendar className="h-4 w-4 text-[#00E676]" />
           <span className="text-[10px] font-black uppercase tracking-wider text-white">Дата</span>
         </div>
-        <Input
-          type="date"
-          value={selectedDate}
-          onChange={(e) => setSelectedDate(e.target.value)}
-          className="text-xs font-mono"
-        />
+        <Input type="date" value={selectedDate} onChange={(e) => setSelectedDate(e.target.value)} className="text-xs font-mono" />
       </Card>
 
       {/* Конструктор */}
@@ -196,11 +181,7 @@ export default function MyoPlannerDashboard() {
           <label className="text-[9px] font-bold text-[#989AA0] uppercase tracking-wider block mb-1.5">
             Название тренировки
           </label>
-          <Input
-            value={workoutTitle}
-            onChange={(e) => setWorkoutTitle(e.target.value)}
-            placeholder="Например: Силовая А, Ноги..."
-          />
+          <Input value={workoutTitle} onChange={(e) => setWorkoutTitle(e.target.value)} placeholder="Например: Силовая А, Ноги..." />
         </div>
 
         <div className="space-y-4">
@@ -217,7 +198,7 @@ export default function MyoPlannerDashboard() {
                     <Input
                       placeholder="Название упражнения..."
                       value={ex.name}
-                      onChange={(e) => updateExercise(ex.id, "name", e.target.value)}
+                      onChange={(e) => updateName(ex.id, e.target.value)}
                       className="h-8 !text-xs font-bold bg-transparent border-none p-0 focus:ring-0"
                     />
                   </div>
@@ -226,40 +207,11 @@ export default function MyoPlannerDashboard() {
                   </Button>
                 </div>
 
-                <div className="grid grid-cols-3 gap-2">
-                  <Input
-                    placeholder="Подходы"
-                    value={ex.sets}
-                    inputMode="numeric"
-                    onChange={(e) => updateExercise(ex.id, "sets", e.target.value)}
-                    className="h-8 text-center text-xs"
-                  />
-                  <Input
-                    placeholder="Повторы"
-                    value={ex.reps}
-                    onChange={(e) => updateExercise(ex.id, "reps", e.target.value)}
-                    className="h-8 text-center text-xs"
-                  />
-                  <Input
-                    placeholder="Вес, кг"
-                    value={ex.weight}
-                    inputMode="decimal"
-                    onChange={(e) => updateExercise(ex.id, "weight", e.target.value)}
-                    className="h-8 text-center text-xs"
-                  />
-                </div>
-
-                <Input
-                  placeholder="Комментарий тренера"
-                  value={ex.trainerComment}
-                  onChange={(e) => updateExercise(ex.id, "trainerComment", e.target.value)}
-                  className="h-8 text-xs"
-                />
-                <Input
-                  placeholder="Комментарий подопечного"
-                  value={ex.clientNote}
-                  onChange={(e) => updateExercise(ex.id, "clientNote", e.target.value)}
-                  className="h-8 text-xs"
+                <SetsEditor
+                  sets={ex.sets}
+                  onAdd={() => addSet(ex.id)}
+                  onRemove={(i) => removeSet(ex.id, i)}
+                  onChange={(i, field, value) => updateSet(ex.id, i, field, value)}
                 />
               </div>
             ))

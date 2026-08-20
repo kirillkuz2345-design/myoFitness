@@ -6,8 +6,10 @@ import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { withRetry } from "@/lib/dbRetry";
 import { useAuth } from "@/providers/AuthProvider";
+import { toDraftSets, buildSetsPayload, toSetEntries, emptyDraftSet, type DraftSetInput } from "@/lib/exerciseSets";
+import SetsEditor from "@/components/workout/SetsEditor";
 import toast from "react-hot-toast";
-import { ArrowLeft, Pencil, Plus, X, Trash2 } from "lucide-react";
+import { ArrowLeft, Pencil, Plus, X, Trash2, Check } from "lucide-react";
 
 interface Exercise {
   id: string;
@@ -15,6 +17,7 @@ interface Exercise {
   sets: number;
   reps: string;
   weight: number | null;
+  sets_data?: unknown;
   trainer_comment: string | null;
   client_note: string | null;
 }
@@ -27,18 +30,16 @@ interface Workout {
   creator_id: string;
 }
 
+interface DetailData {
+  workout: Workout | null;
+  exercises: Exercise[];
+}
+
 interface DraftExercise {
   tempId: string;
   id?: string;
   name: string;
-  sets: string;
-  reps: string;
-  weight: string;
-}
-
-interface DetailData {
-  workout: Workout | null;
-  exercises: Exercise[];
+  sets: DraftSetInput[];
 }
 
 export default function ClientWorkoutDetail({ params }: { params: Promise<{ id: string }> }) {
@@ -51,7 +52,6 @@ export default function ClientWorkoutDetail({ params }: { params: Promise<{ id: 
   const [loading, setLoading] = useState(true);
   const [completed, setCompleted] = useState<Record<string, boolean[]>>({});
 
-  // Редактор (только для своих тренировок)
   const [showEdit, setShowEdit] = useState(false);
   const [saving, setSaving] = useState(false);
   const [eTitle, setETitle] = useState("");
@@ -65,13 +65,10 @@ export default function ClientWorkoutDetail({ params }: { params: Promise<{ id: 
         supabase.from("workouts").select("id, title, workout_date, recommendation, creator_id").eq("id", id).single(),
         supabase
           .from("exercises")
-          .select("id, name, sets, reps, weight, trainer_comment, client_note")
+          .select("id, name, sets, reps, weight, sets_data, trainer_comment, client_note")
           .eq("workout_id", id),
       ]);
-      return {
-        workout: (wRes.data as Workout) ?? null,
-        exercises: (exRes.data as Exercise[]) ?? [],
-      };
+      return { workout: (wRes.data as Workout) ?? null, exercises: (exRes.data as Exercise[]) ?? [] };
     } catch (err) {
       console.error("Ошибка загрузки тренировки:", err);
       return { workout: null, exercises: [] };
@@ -136,20 +133,27 @@ export default function ClientWorkoutDetail({ params }: { params: Promise<{ id: 
       tempId: crypto.randomUUID(),
       id: ex.id,
       name: ex.name,
-      sets: ex.sets != null ? String(ex.sets) : "",
-      reps: ex.reps ?? "",
-      weight: ex.weight != null ? String(ex.weight) : "",
+      sets: toDraftSets(ex),
     }));
     setEEx(drafts);
     setEOriginalIds(drafts.map((d) => d.id as string));
     setShowEdit(true);
   };
 
-  const addEx = () =>
-    setEEx((prev) => [...prev, { tempId: crypto.randomUUID(), name: "", sets: "", reps: "", weight: "" }]);
+  const addEx = () => setEEx((prev) => [...prev, { tempId: crypto.randomUUID(), name: "", sets: [emptyDraftSet()] }]);
   const removeEx = (tempId: string) => setEEx((prev) => prev.filter((d) => d.tempId !== tempId));
-  const updEx = (tempId: string, field: keyof Omit<DraftExercise, "tempId" | "id">, value: string) =>
-    setEEx((prev) => prev.map((d) => (d.tempId === tempId ? { ...d, [field]: value } : d)));
+  const updName = (tempId: string, name: string) =>
+    setEEx((prev) => prev.map((d) => (d.tempId === tempId ? { ...d, name } : d)));
+  const addSet = (tempId: string) =>
+    setEEx((prev) => prev.map((d) => (d.tempId === tempId ? { ...d, sets: [...d.sets, emptyDraftSet()] } : d)));
+  const removeSet = (tempId: string, i: number) =>
+    setEEx((prev) =>
+      prev.map((d) => (d.tempId === tempId && d.sets.length > 1 ? { ...d, sets: d.sets.filter((_, idx) => idx !== i) } : d))
+    );
+  const updSet = (tempId: string, i: number, field: "reps" | "weight", value: string) =>
+    setEEx((prev) =>
+      prev.map((d) => (d.tempId === tempId ? { ...d, sets: d.sets.map((s, idx) => (idx === i ? { ...s, [field]: value } : s)) } : d))
+    );
 
   const saveEdit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -167,31 +171,16 @@ export default function ClientWorkoutDetail({ params }: { params: Promise<{ id: 
 
       const filled = eEx.filter((d) => d.name.trim());
 
-      // Обновляем существующие (trainer_comment не трогаем — это поле тренера)
       for (const d of filled.filter((d) => d.id)) {
         const { error } = await withRetry(() =>
-          supabase
-            .from("exercises")
-            .update({
-              name: d.name.trim(),
-              sets: Number(d.sets) || 0,
-              reps: d.reps.trim(),
-              weight: d.weight.trim() === "" ? null : Number(d.weight),
-            })
-            .eq("id", d.id as string)
+          supabase.from("exercises").update({ name: d.name.trim(), ...buildSetsPayload(d.sets) }).eq("id", d.id as string)
         );
         if (error) throw error;
       }
 
       const newRows = filled
         .filter((d) => !d.id)
-        .map((d) => ({
-          workout_id: workout.id,
-          name: d.name.trim(),
-          sets: Number(d.sets) || 0,
-          reps: d.reps.trim(),
-          weight: d.weight.trim() === "" ? null : Number(d.weight),
-        }));
+        .map((d) => ({ workout_id: workout.id, name: d.name.trim(), ...buildSetsPayload(d.sets) }));
       if (newRows.length > 0) {
         const { error } = await withRetry(() => supabase.from("exercises").insert(newRows));
         if (error) throw error;
@@ -263,9 +252,7 @@ export default function ClientWorkoutDetail({ params }: { params: Promise<{ id: 
 
       {workout.recommendation && (
         <div className="rounded-2xl border border-[#1C1C1E] bg-[#111214] p-4 text-[11px] text-gray-300">
-          <span className="block mb-1 text-[8px] font-bold uppercase tracking-[0.2em] text-[#00E676]">
-            Рекомендации тренера
-          </span>
+          <span className="block mb-1 text-[8px] font-bold uppercase tracking-[0.2em] text-[#00E676]">Рекомендации тренера</span>
           {workout.recommendation}
         </div>
       )}
@@ -276,72 +263,71 @@ export default function ClientWorkoutDetail({ params }: { params: Promise<{ id: 
             В тренировке нет упражнений
           </div>
         ) : (
-          exercises.map((ex, idx) => (
-            <div key={ex.id} className="rounded-2xl border border-[#1C1C1E] bg-[#111214] p-4 space-y-3">
-              <div className="flex justify-between items-center">
-                <span className="text-xs font-bold text-white">
-                  <span className="text-zinc-500 mr-1.5">#{idx + 1}</span>
-                  {ex.name}
-                </span>
-                <span className="text-[10px] text-gray-400 bg-[#0A0A0A] px-2 py-0.5 border border-[#1C1C1E] rounded">
-                  {ex.sets}×{ex.reps} {ex.weight ? `· ${ex.weight} кг` : ""}
-                </span>
-              </div>
-
-              {ex.sets > 0 && (
-                <div className="space-y-1.5">
-                  <div className="flex items-center justify-between">
-                    <span className="text-[8px] font-bold uppercase tracking-[0.2em] text-[#989AA0]">Подходы</span>
+          exercises.map((ex, idx) => {
+            const entries = toSetEntries(ex);
+            return (
+              <div key={ex.id} className="rounded-2xl border border-[#1C1C1E] bg-[#111214] p-4 space-y-3">
+                <div className="flex justify-between items-center">
+                  <span className="text-xs font-bold text-white">
+                    <span className="text-zinc-500 mr-1.5">#{idx + 1}</span>
+                    {ex.name}
+                  </span>
+                  {entries.length > 0 && (
                     <span className="text-[9px] font-black text-[#00E676]">
-                      {doneCount(ex.id)}/{ex.sets}
+                      {doneCount(ex.id)}/{entries.length}
                     </span>
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    {Array.from({ length: ex.sets }).map((_, i) => {
-                      const isDone = (completed[ex.id] ?? [])[i] ?? false;
-                      return (
-                        <button
-                          key={i}
-                          type="button"
-                          onClick={() => toggleSet(ex.id, i, ex.sets)}
-                          aria-label={`Подход ${i + 1}`}
-                          className={`h-8 w-8 rounded-lg border text-[11px] font-black flex items-center justify-center transition-colors ${
-                            isDone
-                              ? "bg-[#00E676] border-[#00E676] text-black"
-                              : "bg-[#0A0A0A] border-[#1C1C1E] text-[#989AA0] hover:border-[#00E676]/40"
+                  )}
+                </div>
+
+                {/* Подходы с индивидуальным весом + отметка выполнения */}
+                <div className="space-y-1.5">
+                  {entries.map((s, i) => {
+                    const isDone = (completed[ex.id] ?? [])[i] ?? false;
+                    return (
+                      <button
+                        key={i}
+                        type="button"
+                        onClick={() => toggleSet(ex.id, i, entries.length)}
+                        className={`w-full flex items-center gap-3 rounded-lg border px-3 py-2 transition-colors ${
+                          isDone ? "border-[#00E676] bg-[#0E2A1C]/40" : "border-[#1C1C1E] bg-[#0A0A0A] hover:border-[#00E676]/40"
+                        }`}
+                      >
+                        <span
+                          className={`h-5 w-5 shrink-0 rounded-md border flex items-center justify-center ${
+                            isDone ? "bg-[#00E676] border-[#00E676] text-black" : "border-[#262626] text-transparent"
                           }`}
                         >
-                          {i + 1}
-                        </button>
-                      );
-                    })}
+                          <Check className="w-3 h-3" />
+                        </span>
+                        <span className="text-[10px] font-bold text-zinc-500 uppercase">Подход {i + 1}</span>
+                        <span className="flex-1 text-right text-[11px] font-mono text-white">
+                          {s.reps || "—"} повт · {s.weight != null ? `${s.weight} кг` : "—"}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {ex.trainer_comment && (
+                  <div className="bg-[#0A0A0A] border border-[#1C1C1E] rounded-lg p-2.5 text-[11px] text-gray-300">
+                    <span className="block text-[8px] font-bold uppercase tracking-wider text-[#989AA0] mb-1">Комментарий тренера</span>
+                    {ex.trainer_comment}
                   </div>
-                </div>
-              )}
+                )}
 
-              {ex.trainer_comment && (
-                <div className="bg-[#0A0A0A] border border-[#1C1C1E] rounded-lg p-2.5 text-[11px] text-gray-300">
-                  <span className="block text-[8px] font-bold uppercase tracking-wider text-[#989AA0] mb-1">
-                    Комментарий тренера
-                  </span>
-                  {ex.trainer_comment}
+                <div className="space-y-1">
+                  <label className="text-[8px] font-bold uppercase tracking-[0.2em] text-[#989AA0]">Ваша обратная связь</label>
+                  <input
+                    type="text"
+                    defaultValue={ex.client_note || ""}
+                    onBlur={(e) => saveNote(ex.id, e.target.value)}
+                    placeholder="Как прошло? Что по ощущениям..."
+                    className="w-full bg-[#0A0A0A] border border-[#1C1C1E] rounded-lg px-3 py-2 text-xs text-white outline-none focus:border-[#00E676]"
+                  />
                 </div>
-              )}
-
-              <div className="space-y-1">
-                <label className="text-[8px] font-bold uppercase tracking-[0.2em] text-[#989AA0]">
-                  Ваша обратная связь
-                </label>
-                <input
-                  type="text"
-                  defaultValue={ex.client_note || ""}
-                  onBlur={(e) => saveNote(ex.id, e.target.value)}
-                  placeholder="Как прошло? Что по ощущениям..."
-                  className="w-full bg-[#0A0A0A] border border-[#1C1C1E] rounded-lg px-3 py-2 text-xs text-white outline-none focus:border-[#00E676]"
-                />
               </div>
-            </div>
-          ))
+            );
+          })
         )}
       </div>
 
@@ -370,14 +356,8 @@ export default function ClientWorkoutDetail({ params }: { params: Promise<{ id: 
 
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
-                  <span className="text-[8px] font-bold uppercase tracking-[0.2em] text-[#989AA0]">
-                    Упражнения ({eEx.length})
-                  </span>
-                  <button
-                    type="button"
-                    onClick={addEx}
-                    className="flex items-center gap-1 text-[9px] font-bold uppercase tracking-wider text-[#00E676] hover:text-[#00c765]"
-                  >
+                  <span className="text-[8px] font-bold uppercase tracking-[0.2em] text-[#989AA0]">Упражнения ({eEx.length})</span>
+                  <button type="button" onClick={addEx} className="flex items-center gap-1 text-[9px] font-bold uppercase tracking-wider text-[#00E676] hover:text-[#00c765]">
                     <Plus className="w-3 h-3" /> Добавить
                   </button>
                 </div>
@@ -388,7 +368,7 @@ export default function ClientWorkoutDetail({ params }: { params: Promise<{ id: 
                       <span className="text-[9px] font-black text-zinc-500">#{idx + 1}</span>
                       <input
                         value={d.name}
-                        onChange={(e) => updEx(d.tempId, "name", e.target.value)}
+                        onChange={(e) => updName(d.tempId, e.target.value)}
                         placeholder="Название упражнения"
                         className="flex-1 bg-transparent text-xs font-bold text-white outline-none"
                       />
@@ -396,28 +376,12 @@ export default function ClientWorkoutDetail({ params }: { params: Promise<{ id: 
                         <Trash2 className="w-3.5 h-3.5" />
                       </button>
                     </div>
-                    <div className="grid grid-cols-3 gap-2">
-                      <input
-                        value={d.sets}
-                        onChange={(e) => updEx(d.tempId, "sets", e.target.value)}
-                        inputMode="numeric"
-                        placeholder="Подходы"
-                        className="bg-[#111214] border border-[#1C1C1E] rounded px-2 py-1.5 text-[11px] text-center text-white outline-none focus:border-[#00E676]"
-                      />
-                      <input
-                        value={d.reps}
-                        onChange={(e) => updEx(d.tempId, "reps", e.target.value)}
-                        placeholder="Повторы"
-                        className="bg-[#111214] border border-[#1C1C1E] rounded px-2 py-1.5 text-[11px] text-center text-white outline-none focus:border-[#00E676]"
-                      />
-                      <input
-                        value={d.weight}
-                        onChange={(e) => updEx(d.tempId, "weight", e.target.value)}
-                        inputMode="decimal"
-                        placeholder="Вес, кг"
-                        className="bg-[#111214] border border-[#1C1C1E] rounded px-2 py-1.5 text-[11px] text-center text-white outline-none focus:border-[#00E676]"
-                      />
-                    </div>
+                    <SetsEditor
+                      sets={d.sets}
+                      onAdd={() => addSet(d.tempId)}
+                      onRemove={(i) => removeSet(d.tempId, i)}
+                      onChange={(i, field, value) => updSet(d.tempId, i, field, value)}
+                    />
                   </div>
                 ))}
               </div>
