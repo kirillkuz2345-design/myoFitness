@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { useAuth } from "@/providers/AuthProvider";
 import { supabase } from "@/lib/supabase";
 import toast from "react-hot-toast";
-import { Users, Sliders, UserPlus, X, Link2, Copy } from "lucide-react";
+import { Users, Sliders, UserPlus, X, Link2, Copy, LayoutTemplate } from "lucide-react";
 import { Card, Button, Input } from "@/components/ui/myo";
 
 interface ClientProfile {
@@ -150,13 +150,22 @@ export default function TrainerClientsListPage() {
             Управление атлетами ({filteredClients.length})
           </span>
         </div>
-        <button
-          type="button"
-          onClick={openBind}
-          className="flex items-center gap-1 text-[9px] font-black uppercase tracking-wider bg-[#00E676] text-black px-3 py-1.5 rounded-lg hover:bg-[#00c765] transition-colors"
-        >
-          <UserPlus className="w-3.5 h-3.5" /> Привязать
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => router.push("/trainer/templates")}
+            className="flex items-center gap-1 text-[9px] font-black uppercase tracking-wider border border-[#1C1C1E] text-[#989AA0] hover:text-white px-3 py-1.5 rounded-lg transition-colors"
+          >
+            <LayoutTemplate className="w-3.5 h-3.5" /> Шаблоны
+          </button>
+          <button
+            type="button"
+            onClick={openBind}
+            className="flex items-center gap-1 text-[9px] font-black uppercase tracking-wider bg-[#00E676] text-black px-3 py-1.5 rounded-lg hover:bg-[#00c765] transition-colors"
+          >
+            <UserPlus className="w-3.5 h-3.5" /> Привязать
+          </button>
+        </div>
       </div>
 
       {/* Инпут поиска */}
